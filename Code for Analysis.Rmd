@@ -164,9 +164,11 @@ conga <- runIbex(conga,
                     AA.properties = "KF", 
                     reduction.name = "Ibex.L.KF")
 
+saveRDS(conga, file = "./data/Ibex_ClonotypeRep.rds")
 ###################
 #Trimodal Embedding
 ###################
+
 
 conga <- FindMultiModalNeighbors(
                     conga, 
