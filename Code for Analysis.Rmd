@@ -1,5 +1,5 @@
 ---
-title: "Ibex Manuscript"
+title: "Ibex Manuscript Analysis"
 author: "Nick Borcherding"
 date: "8/18/2022"
 output: html_document
@@ -13,17 +13,172 @@ suppressPackageStartupMessages(library(gridExtra))
 suppressPackageStartupMessages(library(viridis))
 suppressPackageStartupMessages(library(RColorBrewer))
 suppressPackageStartupMessages(library(Matrix))
-suppressPackageStartupMessages(library(SingleR))
-suppressPackageStartupMessages(library(celldex))
-suppressPackageStartupMessages(library(scRepertoire))
 suppressPackageStartupMessages(library(stringr))
+suppressPackageStartupMessages(library(Ibex))
 ```
 
-###########################
-#Processing Sequencing Runs
-###########################
+
+# The Data Set
+
+To show the multiple options of Ibex, the example data is derived from [this manuscript (https://pubmed.ncbi.nlm.nih.gov/33891889/) - multimodal single-cell characterization of COVID19-associated multisystem inflammatory syndrome in children. The data example built into the package (ibex_example) is derived from randomly sampling cells from Patient 1.
+
+## Preprocessing Data
+
+```{r, eval=FALSE}
+suppressMessages(library(scRepertoire))
+##################################
+#scRNA/ADT loading and processing
+#################################
+tmp <-  Read10X("~/data/GSM5073055_P1.1_filtered_feature_bc_matrix")
+
+MIS.sample <- CreateSeuratObject(counts = tmp$`Gene Expression`)
+rownames(tmp$`Antibody Capture`) <- stringr::str_remove_all(rownames(tmp$`Antibody Capture`), "anti_human_")
+rownames(tmp$`Antibody Capture`) <- stringr::str_remove_all(rownames(tmp$`Antibody Capture`), "anti_mousehuman_")
+rownames(tmp$`Antibody Capture`) <- substr(rownames(tmp$`Antibody Capture`), 6, nchar(rownames(tmp$`Antibody Capture`)))
+
+adt_assay <- CreateAssayObject(counts = tmp$`Antibody Capture`)
+
+
+MIS.sample[["ADT"]] <- adt_assay
+MIS.sample <- subset(MIS.sample, subset = nFeature_RNA > 100) 
+MIS.sample  <- RenameCells(object = MIS.sample , new.names = paste0("MIS.sample_", rownames(MIS.sample[[]])))
+MIS.sample[["mito.genes"]] <- PercentageFeatureSet(MIS.sample, pattern = "^MT-")
+    
+#Filtering step
+standev <- sd(log(MIS.sample$nFeature_RNA))*2.5 #cutting off above standard deviation of 2.5
+mean <- mean(log(MIS.sample$nFeature_RNA))
+cut <- round(exp(standev+mean))
+MIS.sample <- subset(MIS.sample, subset = mito.genes < 10 & nFeature_RNA < cut)
+
+#Processing and Adding Contig Info
+contigs <- read.csv("~/data/GSM5073091_PBMC_P1.1_MIS-C_Severe_BCR_filtered_contig_annotations.csv.gz")
+clones <- combineBCR(contigs, samples = "MIS.sample", removeNA = TRUE)
+MIS.sample <- combineExpression(clones, MIS.sample, cloneCall="aa")
+
+#Subset only B cells (by contigs)
+MIS.sample$BCR.recoverd <- "No"
+MIS.sample$BCR.recoverd[!is.na(MIS.sample$CTaa)] <- "Yes"
+MIS.sample <- subset(MIS.sample, BCR.recoverd == "Yes")
+
+#Processing RNA
+DefaultAssay(MIS.sample) <- 'RNA'
+MIS.sample <- NormalizeData(MIS.sample) %>% FindVariableFeatures() %>% 
+  quietBCRgenes() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+
+#Processing ADT
+DefaultAssay(MIS.sample) <- 'ADT'
+VariableFeatures(MIS.sample) <- rownames(MIS.sample[["ADT"]])
+MIS.sample <- NormalizeData(MIS.sample, normalization.method = 'CLR', margin = 2) %>% 
+  ScaleData() %>% RunPCA(reduction.name = 'apca')
+```
+
 
 ```{r}
+dir.create("./output")
+
 SeuratObj<- readRDS("./data/Ibex_FullExample.rds")
+
+############################
+#Adding Vgenes to meta data
+###########################
+
+SeuratObj$Heavy.V <- str_split(SeuratObj$CTgene, "[.]", simplify = TRUE)[,1]
+SeuratObj$Light.V <- str_split(str_split(SeuratObj$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,1]
+
+##################
+#Running Ibex
+################
+SeuratObj <- runIbex(SeuratObj, 
+                    chains = "Heavy",
+                    AA.properties = "KF", 
+                    reduction.name = "Ibex.H.KF")
+
+SeuratObj <- runIbex(SeuratObj, 
+                    chains = "Light",
+                    AA.properties = "KF", 
+                    reduction.name = "Ibex.L.KF")
+
+
+
+
+
+
+heavy.plot.V <- DimPlot(SeuratObj, reduction = "Ibex.H.KF", group.by = "Heavy.V") + 
+                  scale_color_viridis(discrete = TRUE) + 
+                  theme_void() + 
+                  guides(fill = "none") + 
+                  theme(plot.title = element_blank()) +
+                  NoLegend()
+
+light.plot.V <- DimPlot(SeuratObj, reduction = "Ibex.L.KF", group.by = "Light.V") + 
+                  scale_color_viridis(discrete = TRUE) + 
+                  theme_void() + 
+                  guides(fill = "none") + 
+                  theme(plot.title = element_blank()) +
+                  NoLegend()
+
+heavy.plot.V 
+ggsave("./output/Ibex_heavy_vgenes.pdf", height = 3.5, width = 3.5)
+light.plot.V 
+ggsave("./output/Ibex_light_vgenes.pdf", height = 3.5, width = 3.5)
+
+plot.lambda <- FeaturePlot(SeuratObj, features = "IgLight-chain-lamda", reduction = "Ibex.L.KF") + 
+                  scale_color_viridis() + 
+                  ylab("Ibex_LC_2") + 
+                  xlab("Ibex_LC_1") + 
+                  theme_void() + 
+                  NoLegend() + 
+                  theme(plot.title = element_blank())
+
+plot.kappa <- FeaturePlot(SeuratObj, features = "IgLight-chain-kappa", reduction = "Ibex.L.KF") + 
+                  scale_color_viridis() + 
+                  ylab("Ibex_LC_2") + 
+                  xlab("Ibex_LC_1") + 
+                  theme_void() +
+                  NoLegend() + 
+                  theme(plot.title = element_blank())
+
+plot.lambda + plot.kappa + plot_layout(ncol = 1)
+```
+
+```{r}
+##########################
+#Getting RNA-based
+##########################
+
+SeuratObj <- FindNeighbors(SeuratObj, reduction = "pca")
+SeuratObj <- FindClusters(SeuratObj, 
+                          graph.name = "RNA_snn", 
+                          resolution = 1,
+                          algorithm = 4, 
+                          verbose = FALSE)
+
+###########################
+#Individual UMAP Modalities
+###########################
+
+SeuratObj <- RunUMAP(SeuratObj, 
+                        reduction = 'pca', 
+                        dims = 1:50, 
+                        assay = 'RNA', 
+                        reduction.name = 'rna.umap', 
+                        reduction.key = 'rnaUMAP_')
+
+SeuratObj <- RunUMAP(SeuratObj, 
+                        reduction = 'apca', 
+                        dims = 1:20, 
+                        assay = 'ADT', 
+                        reduction.name = 'adt.umap', 
+                        reduction.key = 'adtUMAP_')
+
+SeuratObj <- RunUMAP(SeuratObj, 
+                        reduction = "Ibex.H.KF", 
+                        dims = 1:30, 
+                        reduction.name = 'ibex.umap', 
+                        reduction.key = 'ibexUMAP_')
+
+plot1 <- DimPlot(SeuratObj, reduction = "rna.umap") + NoLegend()
+plot2 <- DimPlot(SeuratObj, reduction = "adt.umap") + NoLegend()
+plot3 <- DimPlot(SeuratObj, reduction = "ibex.umap") + NoLegend()
 ```
 
