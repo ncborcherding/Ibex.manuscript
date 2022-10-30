@@ -15,6 +15,7 @@ suppressPackageStartupMessages(library(RColorBrewer))
 suppressPackageStartupMessages(library(Matrix))
 suppressPackageStartupMessages(library(stringr))
 suppressPackageStartupMessages(library(Ibex))
+suppressPackageStartupMessages(library(mumosa))
 ```
 
 
@@ -99,8 +100,6 @@ SeuratObj <- runIbex(SeuratObj,
                     reduction.name = "Ibex.L.KF")
 
 
-
-
 heavy.plot.V <- DimPlot(SeuratObj, reduction = "Ibex.H.KF", group.by = "Heavy.V") + 
                   scale_color_viridis(discrete = TRUE) + 
                   theme_void() + 
@@ -120,6 +119,8 @@ ggsave("./output/Ibex_heavy_vgenes.pdf", height = 3.5, width = 3.5)
 light.plot.V 
 ggsave("./output/Ibex_light_vgenes.pdf", height = 3.5, width = 3.5)
 ```
+
+
 ```{r}
 conga <- CoNGAfy(SeuratObj, 
                  assay = c("RNA", "ADT"))
@@ -164,78 +165,110 @@ conga <- runIbex(conga,
                     AA.properties = "KF", 
                     reduction.name = "Ibex.L.KF")
 
-saveRDS(conga, file = "./data/Ibex_ClonotypeRep.rds")
+
+
 ###################
 #Trimodal Embedding
 ###################
+output <- rescaleByNeighbors(
+                  list(conga[["Ibex.H.KF"]]@cell.embeddings, 
+                      conga[["pca"]]@cell.embeddings, 
+                      conga[["apca"]]@cell.embeddings), 
+                  k = 50)
 
+conga[["Trimodal.Embed"]] <- CreateDimReducObject(
+                                embeddings = as.matrix(output),
+                                stdev = rep(0, ncol(output)),
+                                key = "Combined",
+                                jackstraw = NULL,
+                                misc = list())
 
-conga <- FindMultiModalNeighbors(
-                    conga, 
-                    reduction.list = list("pca", "apca", "Ibex.H.KF", "Ibex.L.KF"), 
-                    dims.list = list(1:30, 1:20, 1:30, 1:30), 
-                    modality.weight.name = "RNA.weight")
+conga <- FindNeighbors(conga, 
+                       reduction = "Trimodal.Embed", 
+                       dims = 1:130, 
+                       graph.name = c("Ibex_nn", "Ibex_snn"))
+conga <- FindClusters(conga,
+                      graph.name = "Ibex_nn",
+                      algorithm = 4)
+
+#######################################
+#UMAP Comparisons between each approach
+#######################################
+
 conga <- RunUMAP(conga, 
-                     nn.name = "weighted.nn", 
-                     reduction.name = "wnn.umap", 
-                     reduction.key = "wnnUMAP_")
-conga <- FindClusters(conga, 
-                          graph.name = "wsnn", 
-                          resolution = 0.6,
-                          algorithm = 4, 
-                          verbose = FALSE)
+                     reduction = 'pca', 
+                     dims = 1:30, 
+                     assay = 'RNA', 
+                     reduction.name = 'rna.umap', 
+                     reduction.key = 'rnaUMAP_')
 
-#WNN UMAP
-df <- data.frame(conga@reductions$wnn.umap@cell.embeddings,
-                  conga[[]])
+conga <- RunUMAP(conga, 
+                     reduction = 'apca', 
+                     dims = 1:30, 
+                     assay = 'ADT', 
+                     reduction.name = 'adt.umap', 
+                     reduction.key = 'adtUMAP_')
 
-ggplot() +
-    geom_point(data =df, aes(x=wnnUMAP_1, y = wnnUMAP_2, size = n, fill = seurat_clusters), 
-               shape =21, stroke = 0.1) + 
-    scale_fill_viridis(option = "H", discrete = TRUE) + 
-    theme_classic() +
-    labs(fill = "cluster") + 
-    theme(axis.title = element_blank())
+conga <- RunUMAP(conga, 
+                     reduction = 'Ibex.H.KF', 
+                     dims = 1:30, 
+                     reduction.name = 'heavy.umap', 
+                     reduction.key = 'heavyUMAP_')
+
+conga <- RunUMAP(conga, 
+                     reduction = 'Ibex.L.KF', 
+                     dims = 1:30, 
+                     reduction.name = 'light.umap', 
+                     reduction.key = 'lightUMAP_')
+
+conga <- RunUMAP(conga, 
+                     reduction = 'Trimodal.Embed', 
+                     dims = 1:130, 
+                     reduction.name = 'trimodal.umap', 
+                     reduction.key = 'trimodalUMAP_')
+
+plot.rna <- DimPlot(conga, reduction = "rna.umap") + NoLegend()
+plot.adt <- DimPlot(conga, reduction = "adt.umap") + NoLegend()
+plot.heavy <- DimPlot(conga, reduction = "heavy.umap") + NoLegend()
+plot.combined <- DimPlot(conga, reduction = "trimodal.umap") + NoLegend()
+
+plot.rna + 
+  scale_color_tableau() + 
+  theme_void() + 
+  NoLegend()
+ggsave("./output/clonotype_RNA_umap.pdf", height = 3.5, width = 3.5)
+
+plot.adt + 
+  scale_color_tableau() + 
+  theme_void() + 
+  NoLegend()
+ggsave("./output/clonotype_ADT_umap.pdf", height = 3.5, width = 3.5)
+
+plot.heavy + 
+  scale_color_tableau() + 
+  theme_void() + 
+  NoLegend()
+ggsave("./output/clonotype_IgHeavy_umap.pdf", height = 3.5, width = 3.5)
+
+plot.combined + 
+  scale_color_tableau() + 
+  theme_void() + 
+  NoLegend()
+ggsave("./output/clonotype_combined_umap.pdf", height = 3.5, width = 3.5)
+  
+
+saveRDS(conga, file = "./data/Ibex_ClonotypeRep.rds")
 ```
 
 ```{r}
-##########################
-#Getting RNA-based
-##########################
+features <- rownames(conga@assays$ADT)
 
-SeuratObj <- FindNeighbors(SeuratObj, reduction = "pca")
-SeuratObj <- FindClusters(SeuratObj, 
-                          graph.name = "RNA_snn", 
-                          resolution = 1,
-                          algorithm = 4, 
-                          verbose = FALSE)
+for(i in seq_along(features)) {
 
-###########################
-#Individual UMAP Modalities
-###########################
+  FeaturePlot(conga, features = features[i],  reduction = "trimodal.umap") + 
+  scale_color_viridis()
+ggsave(paste0(features[i], ".pdf"), height = 3.5, width = 3.5)
+}
 
-SeuratObj <- RunUMAP(SeuratObj, 
-                        reduction = 'pca', 
-                        dims = 1:50, 
-                        assay = 'RNA', 
-                        reduction.name = 'rna.umap', 
-                        reduction.key = 'rnaUMAP_')
-
-SeuratObj <- RunUMAP(SeuratObj, 
-                        reduction = 'apca', 
-                        dims = 1:20, 
-                        assay = 'ADT', 
-                        reduction.name = 'adt.umap', 
-                        reduction.key = 'adtUMAP_')
-
-SeuratObj <- RunUMAP(SeuratObj, 
-                        reduction = "Ibex.H.KF", 
-                        dims = 1:30, 
-                        reduction.name = 'ibex.umap', 
-                        reduction.key = 'ibexUMAP_')
-
-plot1 <- DimPlot(SeuratObj, reduction = "rna.umap") + NoLegend()
-plot2 <- DimPlot(SeuratObj, reduction = "adt.umap") + NoLegend()
-plot3 <- DimPlot(SeuratObj, reduction = "ibex.umap") + NoLegend()
 ```
 
