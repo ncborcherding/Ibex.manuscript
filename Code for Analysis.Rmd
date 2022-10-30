@@ -1,0 +1,29 @@
+---
+title: "Ibex Manuscript"
+author: "Nick Borcherding"
+date: "8/18/2022"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages(library(Seurat))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(gridExtra))
+suppressPackageStartupMessages(library(viridis))
+suppressPackageStartupMessages(library(RColorBrewer))
+suppressPackageStartupMessages(library(Matrix))
+suppressPackageStartupMessages(library(SingleR))
+suppressPackageStartupMessages(library(celldex))
+suppressPackageStartupMessages(library(scRepertoire))
+suppressPackageStartupMessages(library(stringr))
+```
+
+###########################
+#Processing Sequencing Runs
+###########################
+
+```{r}
+SeuratObj<- readRDS("./data/Ibex_FullExample.rds")
+```
+
