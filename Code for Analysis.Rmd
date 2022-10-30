@@ -101,8 +101,6 @@ SeuratObj <- runIbex(SeuratObj,
 
 
 
-
-
 heavy.plot.V <- DimPlot(SeuratObj, reduction = "Ibex.H.KF", group.by = "Heavy.V") + 
                   scale_color_viridis(discrete = TRUE) + 
                   theme_void() + 
@@ -121,24 +119,81 @@ heavy.plot.V
 ggsave("./output/Ibex_heavy_vgenes.pdf", height = 3.5, width = 3.5)
 light.plot.V 
 ggsave("./output/Ibex_light_vgenes.pdf", height = 3.5, width = 3.5)
+```
+```{r}
+conga <- CoNGAfy(SeuratObj, 
+                 assay = c("RNA", "ADT"))
 
-plot.lambda <- FeaturePlot(SeuratObj, features = "IgLight-chain-lamda", reduction = "Ibex.L.KF") + 
-                  scale_color_viridis() + 
-                  ylab("Ibex_LC_2") + 
-                  xlab("Ibex_LC_1") + 
-                  theme_void() + 
-                  NoLegend() + 
-                  theme(plot.title = element_blank())
+meta <- SeuratObj[[]]
+clone.count <- meta %>%
+  group_by(CTaa) %>%
+  summarise(n = n()) %>%
+  as.data.frame()
 
-plot.kappa <- FeaturePlot(SeuratObj, features = "IgLight-chain-kappa", reduction = "Ibex.L.KF") + 
-                  scale_color_viridis() + 
-                  ylab("Ibex_LC_2") + 
-                  xlab("Ibex_LC_1") + 
-                  theme_void() +
-                  NoLegend() + 
-                  theme(plot.title = element_blank())
+ID <- clone.count$CTaa
+clone.count <- data.frame(n = clone.count[,2])
+rownames(clone.count) <- ID
+conga <- AddMetaData(conga, clone.count)
 
-plot.lambda + plot.kappa + plot_layout(ncol = 1)
+DefaultAssay(conga) <- 'RNA'
+conga <- NormalizeData(conga) %>% 
+  FindVariableFeatures() %>% 
+  quietBCRgenes() %>% 
+  ScaleData() %>% 
+  RunPCA(verbose = FALSE)
+
+#Processing ADT
+DefaultAssay(conga) <- 'ADT'
+IG.ADT <- grep("Ig",  rownames(conga[["ADT"]]))
+VariableFeatures(conga) <- rownames(conga[["ADT"]])[-IG.ADT] #Removing Immunoglobulins from DimRed
+
+conga <- NormalizeData(conga, normalization.method = 'CLR', margin = 2) %>% 
+  ScaleData() %>% 
+  RunPCA(reduction.name = 'apca')
+
+##################
+#Running Ibex
+################
+conga <- runIbex(conga, 
+                    chains = "Heavy",
+                    AA.properties = "KF", 
+                    reduction.name = "Ibex.H.KF")
+
+conga <- runIbex(conga, 
+                    chains = "Light",
+                    AA.properties = "KF", 
+                    reduction.name = "Ibex.L.KF")
+
+###################
+#Trimodal Embedding
+###################
+
+conga <- FindMultiModalNeighbors(
+                    conga, 
+                    reduction.list = list("pca", "apca", "Ibex.H.KF", "Ibex.L.KF"), 
+                    dims.list = list(1:30, 1:20, 1:30, 1:30), 
+                    modality.weight.name = "RNA.weight")
+conga <- RunUMAP(conga, 
+                     nn.name = "weighted.nn", 
+                     reduction.name = "wnn.umap", 
+                     reduction.key = "wnnUMAP_")
+conga <- FindClusters(conga, 
+                          graph.name = "wsnn", 
+                          resolution = 0.6,
+                          algorithm = 4, 
+                          verbose = FALSE)
+
+#WNN UMAP
+df <- data.frame(conga@reductions$wnn.umap@cell.embeddings,
+                  conga[[]])
+
+ggplot() +
+    geom_point(data =df, aes(x=wnnUMAP_1, y = wnnUMAP_2, size = n, fill = seurat_clusters), 
+               shape =21, stroke = 0.1) + 
+    scale_fill_viridis(option = "H", discrete = TRUE) + 
+    theme_classic() +
+    labs(fill = "cluster") + 
+    theme(axis.title = element_blank())
 ```
 
 ```{r}
