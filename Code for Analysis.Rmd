@@ -16,6 +16,7 @@ suppressPackageStartupMessages(library(Matrix))
 suppressPackageStartupMessages(library(stringr))
 suppressPackageStartupMessages(library(Ibex))
 suppressPackageStartupMessages(library(mumosa))
+suppressPackageStartupMessages(library(immunarch))
 ```
 
 
@@ -30,7 +31,7 @@ suppressMessages(library(scRepertoire))
 ##################################
 #scRNA/ADT loading and processing
 #################################
-tmp <-  Read10X("~/data/GSM5073055_P1.1_filtered_feature_bc_matrix")
+tmp <-  Read10X("./data/GSM5073055_P1.1_filtered_feature_bc_matrix")
 
 MIS.sample <- CreateSeuratObject(counts = tmp$`Gene Expression`)
 rownames(tmp$`Antibody Capture`) <- stringr::str_remove_all(rownames(tmp$`Antibody Capture`), "anti_human_")
@@ -52,7 +53,7 @@ cut <- round(exp(standev+mean))
 MIS.sample <- subset(MIS.sample, subset = mito.genes < 10 & nFeature_RNA < cut)
 
 #Processing and Adding Contig Info
-contigs <- read.csv("~/data/GSM5073091_PBMC_P1.1_MIS-C_Severe_BCR_filtered_contig_annotations.csv.gz")
+contigs <- read.csv("./data/GSM5073091_PBMC_P1.1_MIS-C_Severe_BCR_filtered_contig_annotations.csv.gz")
 clones <- combineBCR(contigs, samples = "MIS.sample", removeNA = TRUE)
 MIS.sample <- combineExpression(clones, MIS.sample, cloneCall="aa")
 
@@ -119,6 +120,16 @@ ggsave("./output/Ibex_heavy_vgenes.pdf", height = 3.5, width = 3.5)
 light.plot.V 
 ggsave("./output/Ibex_light_vgenes.pdf", height = 3.5, width = 3.5)
 ```
+
+
+## Calculating Clonal Lineages and Hypermutation
+
+Here we will use the immunarch R package to further characterize the clonal lineage information from the B cells. 
+
+```{r}
+contigs <- repLoad("./data/GSM5073091_PBMC_P1.1_MIS-C_Severe_BCR_filtered_contig_annotations.csv.gz")
+```
+
 
 
 ```{r}
