@@ -127,7 +127,14 @@ ggsave("./output/Ibex_light_vgenes.pdf", height = 3.5, width = 3.5)
 Here we will use the immunarch R package to further characterize the clonal lineage information from the B cells. 
 
 ```{r}
-contigs <- repLoad("./data/GSM5073091_PBMC_P1.1_MIS-C_Severe_BCR_filtered_contig_annotations.csv.gz")
+BCR.contigs <- repLoad("./data/GSM5073091_PBMC_P1.1_MIS-C_Severe_BCR_filtered_contig_annotations.csv.gz")
+
+distBCR <- seqDist(BCR.contigs$data  %>% top(500))
+
+BCR.contigs$data <- seqCluster(BCR.contigs$data  %>% top(500), distBCR, .perc_similarity = 0.9)
+
+shm_data <- BCR.contigs$data %>%
+    repSomaticHypermutation(.threads = 2, .nofail = TRUE)
 ```
 
 
