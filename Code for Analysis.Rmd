@@ -260,15 +260,49 @@ ggsave("./output/clonotype_combined_umap.pdf", height = 3.5, width = 3.5)
 saveRDS(conga, file = "./data/Ibex_ClonotypeRep.rds")
 ```
 
+
 ```{r}
-features <- rownames(conga@assays$ADT)
+conga$IgHType <- str_split(str_split(conga$CTgene, "_", simplify = TRUE)[,1], "[.]", simplify = TRUE)[,4]
+conga$IgLType <- str_split(str_split(conga$CTgene, "_", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,3]
 
-for(i in seq_along(features)) {
+DimPlot(conga, reduction = "trimodal.umap", group.by = "IgHType")
+DimPlot(conga, reduction = "trimodal.umap", group.by = "IgLType")
 
-  FeaturePlot(conga, features = features[i],  reduction = "trimodal.umap") + 
-  scale_color_viridis()
-ggsave(paste0(features[i], ".pdf"), height = 3.5, width = 3.5)
+
+protein.markers <- FindAllMarkers(conga, logfc.threshold = 0)
+DefaultAssay(conga) <- "RNA"
+RNA.markers <- FindAllMarkers(conga)
+
+top.markers <- RNA.markers %>%
+  group_by(cluster) %>%
+  slice_max(n=10, order_by = avg_log2FC)
+```
+
+```{r}
+adt.tmp <- data.frame(t(as.matrix(conga@assays$ADT@counts)), cluster = conga$seurat_clusters)
+
+table <-  adt.tmp %>% 
+        group_by(cluster) %>%
+        summarise(across(1:189, median)) %>%
+        as.data.frame()
+
+table <- table[,c("cluster", "CD10","CD19", "CD24","CD27","CD38", "CD279", "CD185", "CD45RA", "CD45RO", colnames(table)[grep("Ig", colnames(table))], "HLADR")]
+
+normalize <- function(x) {
+    (x- min(x)) /(max(x)-min(x))
 }
 
+for (i in 2:17) {
+  table[,i] <- normalize(table[,i] )
+}
+
+names <- table$cluster
+table <- table[,-1]
+rownames(table) <- names
+
+pheatmap::pheatmap(t(table), show_colnames = TRUE, color = viridis_pal()(50), scale = "row")    
+```
+```{r}
+ FeaturePlot(conga, reduction = "trimodal.umap", features = "IgGFc") + scale_color_viridis()+ NoLegend() 
 ```
 
