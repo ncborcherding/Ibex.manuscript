@@ -16,12 +16,68 @@ suppressPackageStartupMessages(library(Matrix))
 suppressPackageStartupMessages(library(stringr))
 suppressPackageStartupMessages(library(Ibex))
 suppressPackageStartupMessages(library(mumosa))
-suppressPackageStartupMessages(library(immunarch))
 ```
 
 ```{r}
-Sys.setenv(PATH=paste0('/Users/ncborch/opt/anaconda3/bin:', Sys.getenv('PATH')))
+library(reticulate)
+Sys.setenv(RETICULATE_PYTHON = "/Users/ncborch/Library/r-miniconda-arm64/envs/r-reticulate/bin/python")
+use_condaenv(condaenv = "r-reticulate", required = TRUE)
 ```
+
+# Ibex performance on naive repertoire
+
+## Loading BCR sequences that the autoencoder has never seen before. The R folder contains stripped down version of the Ibex encoders to allow for the comparisons without the need for single-cell data.
+
+```{r}
+source("./R/utils.R")
+source("./R/auto.encoder.R")
+
+#CDR3 sequences that the autoencoders have never seen before
+unique.heavy <- readRDS("./data/naive.heavy.rds")
+unique.light <- readRDS("./data/naive.heavy.rds")
+
+
+######################
+#Setting up the loops
+#####################
+#Testing both chains, 3 AA property encoders, testing time for chains, and bootstrapping everything together
+set.seed(42)
+chain.list <- list(unique.heavy, unique.light)
+names(chain.list) <- c("Heavy", "Light")
+num.chains <- c(10,100,1000,10000, 100000)
+boot.straps <- 1:10
+AA.list <- c("KF", "AF", "OHE")
+
+final.output <- NULL
+chain.output <- NULL
+int.output <- NULL
+boot.output <- NULL
+for(i in seq_along(chain.list)) {
+    for(j in seq_along(num.chains)) {
+      tmp.chain <- chain.list[[i]][sample(length(chain.list[[i]]), num.chains[j])]
+      for(k in seq_along(boot.straps)) {
+        for(l in seq_along(AA.list)) {
+          start_time <- Sys.time()
+          out.tmp <- auto.encoder(tmp.chain, 
+                         chain = names(chain.list)[i], 
+                         AA.properties = AA.list[l])
+          end_time <- Sys.time()
+          runtime <- end_time - start_time
+          out <- c(nrow(unique(out.tmp)), runtime, names(chain.list)[i], AA.list[l], num.chains[j], boot.straps[k])
+          int.output <- rbind(int.output, out)
+        }
+        boot.output <- rbind(boot.output, int.output)
+        int.output <- NULL
+      }
+      chain.output <- rbind(chain.output, boot.output)
+      boot.output <- NULL
+    }
+  final.output <- rbind(final.output, chain.output)
+}
+
+```
+
+
 
 # The Data Set
 
@@ -75,6 +131,8 @@ DefaultAssay(MIS.sample) <- 'ADT'
 VariableFeatures(MIS.sample) <- rownames(MIS.sample[["ADT"]])
 MIS.sample <- NormalizeData(MIS.sample, normalization.method = 'CLR', margin = 2) %>% 
   ScaleData() %>% RunPCA(reduction.name = 'apca')
+
+saveRDS("/data/Ibex_FullExample.rds")
 ```
 
 
