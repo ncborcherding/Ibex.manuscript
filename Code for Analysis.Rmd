@@ -26,9 +26,11 @@ use_condaenv(condaenv = "r-reticulate", required = TRUE)
 
 # Ibex performance on naive repertoire
 
-## Loading BCR sequences that the autoencoder has never seen before. The R folder contains stripped down version of the Ibex encoders to allow for the comparisons without the need for single-cell data.
+## Loading BCR sequences 
 
-```{r}
+BCR sequences being loaded are sequences never seen by the autoencoder. The R folder contains stripped down version of the Ibex encoders to allow for the comparisons without the need for single-cell data.
+
+```{r, eval=FALSE}
 source("./R/utils.R")
 source("./R/auto.encoder.R")
 
@@ -74,9 +76,42 @@ for(i in seq_along(chain.list)) {
     }
   final.output <- rbind(final.output, chain.output)
 }
+final.output <- as.data.frame(final.output)
+colnames(final.output) <- c("unique.cdr3", "runtime", "chain", "property", "num.cdr3.tested", "boot.strap")
 
+saveRDS(final.output, "./output/Benchmarking.results.rds")
 ```
 
+
+## Graphing the Benchmarking results
+
+```{r}
+final.output <- readRDS("./output/Benchmarking.results.rds")
+
+plot1 <- ggplot(final.output, aes(x = as.numeric(num.cdr3.tested), y = as.numeric(unique.cdr3), group = interaction(as.numeric(num.cdr3.tested),property))) + 
+  geom_smooth(method = "lm", color = "black", size = 0.5) + 
+  geom_jitter(aes(color = property)) + 
+  scale_x_log10() + 
+  scale_y_log10() + 
+  xlab("cdr3 sequences tested") + 
+  ylab("unique encoded values") + 
+  scale_color_viridis(discrete = TRUE)+
+  facet_grid(.~chain) + 
+  theme_bw()
+
+plot2 <- ggplot(final.output, aes(x = as.numeric(num.cdr3.tested), y = as.numeric(runtime), group = property)) + 
+  geom_smooth(method = "loess", size = 0.5, aes(color = property)) + 
+  geom_point(aes(color = property)) + 
+   xlab("cdr3 sequences tested") + 
+  ylab("time (s)") + 
+  scale_x_log10() + 
+  scale_color_viridis(discrete = TRUE)+
+  facet_grid(.~chain) + 
+  theme_bw()
+
+plot1 + plot2 + plot_layout(ncol = 1)
+ggsave("./output/benchmarking.pdf", height = 7, width = 7)
+```
 
 
 # The Data Set
@@ -182,40 +217,13 @@ light.plot.V
 ggsave("./output/Ibex_light_vgenes.pdf", height = 3.5, width = 3.5)
 ```
 
-
-## Calculating Clonal Lineages and Hypermutation
-
-Here we will use the immunarch R package to further characterize the clonal lineage information from the B cells. 
-
-```{r}
-BCR.contigs <- repLoad("./data/GSM5073091_PBMC_P1.1_MIS-C_Severe_BCR_filtered_contig_annotations.csv.gz")
-
-<<<<<<< Updated upstream
-distBCR <- seqDist(BCR.contigs$data  %>% top(500))
-
-BCR.contigs$data <- seqCluster(BCR.contigs$data  %>% top(500), distBCR, .perc_similarity = 0.9)
-
-shm_data <- BCR.contigs$data %>%
-=======
-distBCR <- seqDist(BCR.contigs$data %>% top(500))
-
-align_dt <- BCR.contigs$data %>%
-  seqCluster(seqDist(BCR.contigs$data, .col = 'CDR3.nt', .group_by_seqLength = TRUE), 
-             .perc_similarity = 0.6) %>%
-  repGermline(.threads = 1) %>%
-  repAlignLineage(.min_lineage_sequences = 6, .align_threads = 2, .nofail = TRUE)
-
-shm <- BCR.contigs$data %>%
->>>>>>> Stashed changes
-    repSomaticHypermutation(.threads = 2, .nofail = TRUE)
-```
-
-
+## Reducing the data set to clonotypes
 
 ```{r}
 conga <- CoNGAfy(SeuratObj, 
                  assay = c("RNA", "ADT"))
 
+#Get count of number of clones
 meta <- SeuratObj[[]]
 clone.count <- meta %>%
   group_by(CTaa) %>%
@@ -323,6 +331,10 @@ plot.adt <- DimPlot(conga, reduction = "adt.umap") + NoLegend()
 plot.heavy <- DimPlot(conga, reduction = "heavy.umap") + NoLegend()
 plot.combined <- DimPlot(conga, reduction = "trimodal.umap") + NoLegend()
 
+###############
+#Plotting
+#############
+
 plot.rna + 
   scale_color_tableau() + 
   theme_void() + 
@@ -349,51 +361,5 @@ ggsave("./output/clonotype_combined_umap.pdf", height = 3.5, width = 3.5)
   
 
 saveRDS(conga, file = "./data/Ibex_ClonotypeRep.rds")
-```
-
-
-```{r}
-conga$IgHType <- str_split(str_split(conga$CTgene, "_", simplify = TRUE)[,1], "[.]", simplify = TRUE)[,4]
-conga$IgLType <- str_split(str_split(conga$CTgene, "_", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,3]
-
-DimPlot(conga, reduction = "trimodal.umap", group.by = "IgHType")
-DimPlot(conga, reduction = "trimodal.umap", group.by = "IgLType")
-
-
-protein.markers <- FindAllMarkers(conga, logfc.threshold = 0)
-DefaultAssay(conga) <- "RNA"
-RNA.markers <- FindAllMarkers(conga)
-
-top.markers <- RNA.markers %>%
-  group_by(cluster) %>%
-  slice_max(n=10, order_by = avg_log2FC)
-```
-
-```{r}
-adt.tmp <- data.frame(t(as.matrix(conga@assays$ADT@counts)), cluster = conga$seurat_clusters)
-
-table <-  adt.tmp %>% 
-        group_by(cluster) %>%
-        summarise(across(1:189, median)) %>%
-        as.data.frame()
-
-table <- table[,c("cluster", "CD10","CD19", "CD24","CD27","CD38", "CD279", "CD185", "CD45RA", "CD45RO", colnames(table)[grep("Ig", colnames(table))], "HLADR")]
-
-normalize <- function(x) {
-    (x- min(x)) /(max(x)-min(x))
-}
-
-for (i in 2:17) {
-  table[,i] <- normalize(table[,i] )
-}
-
-names <- table$cluster
-table <- table[,-1]
-rownames(table) <- names
-
-pheatmap::pheatmap(t(table), show_colnames = TRUE, color = viridis_pal()(50), scale = "row")    
-```
-```{r}
- FeaturePlot(conga, reduction = "trimodal.umap", features = "IgGFc") + scale_color_viridis()+ NoLegend() 
 ```
 
