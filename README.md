@@ -17,13 +17,14 @@ providing ease to the incorporation of many single-cell workflows and multimodal
 ├── data
 │   ├── Ibex_FullExample.rds #All B cells
 │   ├── Ibex_ClonotypeRep.rds #Reduced to clonotype
-│   ├── GSM5073055_P1.1_filtered_feature_bc_matrix #GEX/ADT data
-│   ├── GSM5073091_PBMC_P1.1_MIS-C_Severe_BCR_filtered_contig_annotations.csv.gz #BCR Data
 │   ├── ibex.data.rda #amino acid properties
 │   ├── naive.heavy.rds #heavy chain cdr3
-|   └── naive.light.rds #heavy chain cdr3
+|   ├── naive.light.rds #heavy chain cdr3
+|   └── SequencingRuns #Selecting runs from GSE166489
 ├── R #Functions written for Benchmarking
 ├── Output #Benchmarking and Visualization in Manuscript
+|   └── Ibex_ClonotypeRep.rds #Reduced to clonotype
+├── Output #Visualization in Manuscript
 └── Code for Analysis.Rmd
 ```
 

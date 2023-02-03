@@ -1,7 +1,7 @@
 ---
 title: "Ibex Manuscript Analysis"
 author: "Nick Borcherding"
-date: "8/18/2022"
+date: "2/2/2023"
 output: html_document
 ---
 
@@ -16,6 +16,7 @@ suppressPackageStartupMessages(library(Matrix))
 suppressPackageStartupMessages(library(stringr))
 suppressPackageStartupMessages(library(Ibex))
 suppressPackageStartupMessages(library(mumosa))
+suppressPackageStartupMessages(library(patchwork))
 ```
 
 ```{r}
@@ -121,52 +122,70 @@ To show the multiple options of Ibex, the example data is derived from [this man
 ## Preprocessing Data
 
 ```{r, eval=FALSE}
-suppressMessages(library(scRepertoire))
-##################################
-#scRNA/ADT loading and processing
-#################################
-tmp <-  Read10X("./data/GSM5073055_P1.1_filtered_feature_bc_matrix")
+dir.create("./qc")
+GEX.matrices <- list.dirs("./data/sequencingRuns", 
+                           recursive = TRUE,
+                           full.names = TRUE)
+GEX.matrices <- GEX.matrices[grep("filtered_feature_bc_matrix", GEX.matrices)]
+sample.names <- list.dirs("./data/sequencingRuns", recursive = FALSE)
+sample.names <- stringr::str_split(sample.names, "[/]", simplify = TRUE)[,4]
 
-MIS.sample <- CreateSeuratObject(counts = tmp$`Gene Expression`)
-rownames(tmp$`Antibody Capture`) <- stringr::str_remove_all(rownames(tmp$`Antibody Capture`), "anti_human_")
-rownames(tmp$`Antibody Capture`) <- stringr::str_remove_all(rownames(tmp$`Antibody Capture`), "anti_mousehuman_")
-rownames(tmp$`Antibody Capture`) <- substr(rownames(tmp$`Antibody Capture`), 6, nchar(rownames(tmp$`Antibody Capture`)))
-
-adt_assay <- CreateAssayObject(counts = tmp$`Antibody Capture`)
-
-
-MIS.sample[["ADT"]] <- adt_assay
-MIS.sample <- subset(MIS.sample, subset = nFeature_RNA > 100) 
-MIS.sample  <- RenameCells(object = MIS.sample , new.names = paste0("MIS.sample_", rownames(MIS.sample[[]])))
-MIS.sample[["mito.genes"]] <- PercentageFeatureSet(MIS.sample, pattern = "^MT-")
+seurat.list <- NULL
+for(i in seq_along(sample.names)) {
+  tmp <- Read10X(GEX.matrices[[i]])
+  if(length(tmp) == 2) {
+     s.object <- CreateSeuratObject(counts = tmp$`Gene Expression`, sample.names[i])
+     #Removing extra prefixes on antibodies
+     rownames(tmp$`Antibody Capture`) <- stringr::str_remove_all(rownames(tmp$`Antibody Capture`), "anti_human_")
+     rownames(tmp$`Antibody Capture`) <- stringr::str_remove_all(rownames(tmp$`Antibody Capture`), "anti_mousehuman_")
+     rownames(tmp$`Antibody Capture`) <- substr(rownames(tmp$`Antibody Capture`), 6, nchar(rownames(tmp$`Antibody Capture`)))
+  
+     adt_assay <- CreateAssayObject(counts = tmp$`Antibody Capture`)
+     s.object[["ADT"]] <- adt_assay
+  } else {
+    s.object <- CreateSeuratObject(counts = tmp, project = sample.names[i])
+  }
+  s.object <- RenameCells(object = s.object , new.names = paste0(sample.names[i], "_", rownames(s.object[[]])))
+  s.object <- subset(s.object, subset = nFeature_RNA > 100) 
+  s.object[["percent.mt"]] <- PercentageFeatureSet(s.object, pattern = "^MT-")
+  s.object[["percent.rb"]] <- PercentageFeatureSet(s.object, pattern = "^RBS|RPL")
+  s.object <- SCTransform(s.object,
+                        vars.to.regress = c('percent.mt', 'percent.rb', "nCount_RNA"), 
+                        vst.flavor = "v2",
+                        min_cells = 3, 
+                        verbose = FALSE)
+  
+  p1 <- VlnPlot(object = s.object, features = c("nCount_RNA")) + theme(legend.position = "none")
+  p2 <- VlnPlot(object = s.object, features = c("nFeature_RNA")) + theme(legend.position = "none")
+  p3 <- VlnPlot(object = s.object, features = c("percent.mt")) + theme(legend.position = "none")
     
-#Filtering step
-standev <- sd(log(MIS.sample$nFeature_RNA))*2.5 #cutting off above standard deviation of 2.5
-mean <- mean(log(MIS.sample$nFeature_RNA))
-cut <- round(exp(standev+mean))
-MIS.sample <- subset(MIS.sample, subset = mito.genes < 10 & nFeature_RNA < cut)
+  
+  p1 + p2 + p3+ plot_layout(ncol = 3)
+  ggsave(paste0("./qc/", sample.names[i], ".pdf"), height = 8, width=12)
+    
+  ###########################
+  #Here is the filtering step
+  ############################
+  standev <- sd(log(s.object$nCount_RNA))*2 #cutting off above standard deviation of 2
+  mean <- mean(log(s.object$nCount_RNA))
+  cut <- round(exp(standev+mean))
+  s.object <- subset(s.object, subset = percent.mt < 15 & nFeature_RNA < cut)
 
-#Processing and Adding Contig Info
-contigs <- read.csv("./data/GSM5073091_PBMC_P1.1_MIS-C_Severe_BCR_filtered_contig_annotations.csv.gz")
-clones <- combineBCR(contigs, samples = "MIS.sample", removeNA = TRUE)
-MIS.sample <- combineExpression(clones, MIS.sample, cloneCall="aa")
+  seurat.list[[i]] <- s.object
+}
 
-#Subset only B cells (by contigs)
-MIS.sample$BCR.recoverd <- "No"
-MIS.sample$BCR.recoverd[!is.na(MIS.sample$CTaa)] <- "Yes"
-MIS.sample <- subset(MIS.sample, BCR.recoverd == "Yes")
 
-#Processing RNA
-DefaultAssay(MIS.sample) <- 'RNA'
-MIS.sample <- NormalizeData(MIS.sample) %>% FindVariableFeatures() %>% 
-  quietBCRgenes() %>% ScaleData() %>% RunPCA(verbose = FALSE)
 
-#Processing ADT
-DefaultAssay(MIS.sample) <- 'ADT'
-VariableFeatures(MIS.sample) <- rownames(MIS.sample[["ADT"]])
-MIS.sample <- NormalizeData(MIS.sample, normalization.method = 'CLR', margin = 2) %>% 
-  ScaleData() %>% RunPCA(reduction.name = 'apca')
-
+  
+  
+  contig.file <- list.files(paste0("./data/sequencingRuns/", sample.names[i]), 
+                            pattern = "contig", 
+                            full.names = TRUE)
+  
+  contigs <- read.csv(contig.file)
+  clones <- combineBCR(contigs, samples = sample.names[i], removeNA = TRUE)
+  s.object<- combineExpression(clones, s.object, cloneCall="aa")
+  
 saveRDS("/data/Ibex_FullExample.rds")
 ```
 
@@ -174,7 +193,7 @@ saveRDS("/data/Ibex_FullExample.rds")
 ```{r}
 dir.create("./output")
 
-SeuratObj<- readRDS("./data/Ibex_FullExample.rds")
+SeuratObj <- readRDS("./data/Ibex_FullExample.rds")
 
 ############################
 #Adding Vgenes to meta data
@@ -182,6 +201,8 @@ SeuratObj<- readRDS("./data/Ibex_FullExample.rds")
 
 SeuratObj$Heavy.V <- str_split(SeuratObj$CTgene, "[.]", simplify = TRUE)[,1]
 SeuratObj$Light.V <- str_split(str_split(SeuratObj$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,1]
+
+
 
 ##################
 #Running Ibex
@@ -196,6 +217,13 @@ SeuratObj <- runIbex(SeuratObj,
                     AA.properties = "KF", 
                     reduction.name = "Ibex.L.KF")
 
+
+plot.df <- data.frame(SeuratObj[[]], 
+                      SeuratObj@reductions$Ibex.H.KF@cell.embeddings[,c(1:2)], 
+                      SeuratObj@reductions$Ibex.L.KF@cell.embeddings[,c(1:2)])
+
+ggplot(plot.df, aes(x = IbexHKF_1, y = IbexHKF_2)) + 
+  geom_point(aes(size = n, color = Heavy.V))
 
 heavy.plot.V <- DimPlot(SeuratObj, reduction = "Ibex.H.KF", group.by = "Heavy.V") + 
                   scale_color_viridis(discrete = TRUE) + 
@@ -216,6 +244,46 @@ ggsave("./output/Ibex_heavy_vgenes.pdf", height = 3.5, width = 3.5)
 light.plot.V 
 ggsave("./output/Ibex_light_vgenes.pdf", height = 3.5, width = 3.5)
 ```
+
+## Calculating Clonal Lineages and Hypermutation
+
+Here we will use the immunarch R package to further characterize the clonal lineage information from the B cells. 
+
+```{r}
+BCR.contigs <- read.csv("./data/GSM5073091_PBMC_P1.1_MIS-C_Severe_BCR_filtered_contig_annotations.csv.gz")
+BCR.contigs <- BCR.contigs[BCR.contigs$productive == "True",]
+BCR.contigs <- unique(BCR.contigs[,c("barcode", "raw_clonotype_id")])
+BCR.contigs$barcode <- paste0("MIS.sample_", BCR.contigs$barcode)
+
+barcodes <- BCR.contigs$barcode
+
+BCR.contigs <- data.frame(clonotype = BCR.contigs[,2])
+rownames(BCR.contigs) <- barcodes
+
+SeuratObj <- AddMetaData(SeuratObj, BCR.contigs)
+
+light.plot.Cl <- DimPlot(SeuratObj, reduction = "Ibex.L.KF", group.by = "clonotype") + 
+                      scale_color_viridis(discrete = TRUE, option = "H") + 
+                      theme_void() + 
+                      guides(fill = "none") + 
+                      theme(plot.title = element_blank()) +
+                      NoLegend()
+
+heavy.plot.Cl <-DimPlot(SeuratObj, reduction = "Ibex.H.KF", group.by = "clonotype") + 
+                      scale_color_viridis(discrete = TRUE, option = "H") + 
+                      theme_void() + 
+                      guides(fill = "none") + 
+                      theme(plot.title = element_blank()) +
+                      NoLegend()
+
+heavy.plot.Cl
+ggsave("./output/Ibex_heavy_cluster.pdf", height = 3.5, width = 3.5)
+light.plot.Cl
+ggsave("./output/Ibex_light_cluster.pdf", height = 3.5, width = 3.5)
+
+meta <- SeuratObj[[]]
+```
+
 
 ## Reducing the data set to clonotypes
 
