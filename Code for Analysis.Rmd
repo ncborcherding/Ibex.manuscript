@@ -174,19 +174,36 @@ for(i in seq_along(sample.names)) {
   seurat.list[[i]] <- s.object
 }
 
+seurat.merge <- merge(seurat.list[[1]], seurat.list[-1])
 
 
+###########################
+#Adding Contig Information
+############################
   
-  
-  contig.file <- list.files(paste0("./data/sequencingRuns/", sample.names[i]), 
+contig.file <- list.files("./data/sequencingRuns/", 
                             pattern = "contig", 
-                            full.names = TRUE)
-  
-  contigs <- read.csv(contig.file)
-  clones <- combineBCR(contigs, samples = sample.names[i], removeNA = TRUE)
-  s.object<- combineExpression(clones, s.object, cloneCall="aa")
-  
-saveRDS("/data/Ibex_FullExample.rds")
+                            full.names = TRUE, 
+                            recursive = TRUE)
+
+contigs <- lapply(contig.file, read.csv)
+clones <- combineBCR(contigs, samples = sample.names, removeNA = TRUE)
+seurat.merge <- combineExpression(clones, seurat.merge, cloneCall = "aa")
+seurat.merge$BCR.recoverd <- "No"
+seurat.merge$BCR.recoverd[!is.na(seurat.merge$CTaa)] <- "Yes"
+seurat.merge <- subset(seurat.merge, BCR.recoverd == "Yes")
+saveRDS(seurat.merge, "./data/Ibex_SCdata.rds")
+
+###########################
+#Integration Step
+############################
+#Only fraction has ADT - we will just do overall RNA for now. 
+
+
+############################
+#Call Somatic Hypermutation
+############################
+
 ```
 
 
