@@ -149,11 +149,6 @@ for(i in seq_along(sample.names)) {
   s.object <- subset(s.object, subset = nFeature_RNA > 100) 
   s.object[["percent.mt"]] <- PercentageFeatureSet(s.object, pattern = "^MT-")
   s.object[["percent.rb"]] <- PercentageFeatureSet(s.object, pattern = "^RBS|RPL")
-  s.object <- SCTransform(s.object,
-                        vars.to.regress = c('percent.mt', 'percent.rb', "nCount_RNA"), 
-                        vst.flavor = "v2",
-                        min_cells = 3, 
-                        verbose = FALSE)
   
   p1 <- VlnPlot(object = s.object, features = c("nCount_RNA")) + theme(legend.position = "none")
   p2 <- VlnPlot(object = s.object, features = c("nFeature_RNA")) + theme(legend.position = "none")
@@ -197,8 +192,31 @@ saveRDS(seurat.merge, "./data/Ibex_SCdata.rds")
 ###########################
 #Integration Step
 ############################
-#Only fraction has ADT - we will just do overall RNA for now. 
+#Only fraction has ADT - we will just do overall RNA for now.
+"%!in%" <- Negate("%in%")
+seurat.merge <- readRDS("./data/Ibex_SCdata.rds")
+seurat.list <- SplitObject(seurat.merge, split.by = "orig.ident")
+seurat.list <- lapply(X = seurat.list, function(x) {
+  trans <- SCTransform(x,
+                        vars.to.regress = c('percent.mt', 'percent.rb', "nCount_RNA"), 
+                        vst.flavor = "v2",
+                        min_cells = 3, 
+                        verbose = FALSE)
+  trans
+})
+features <- SelectIntegrationFeatures(object.list = seurat.list, nfeatures = 3000)
 
+unwanted_genes <- "^IG[HLK][VDJCAGM]"
+unwanted_genes <- grep(pattern = unwanted_genes, x = features, value = TRUE)
+unwanted_genes <- c(unwanted_genes , "JCHAIN")
+features <- features[features %!in% unwanted_genes]
+seurat.list <- PrepSCTIntegration(object.list = seurat.list, anchor.features = features)
+
+immune.anchors <- FindIntegrationAnchors(object.list = seurat.list, normalization.method = "SCT", anchor.features = features)
+seurat.merge <- IntegrateData(anchorset = immune.anchors, normalization.method = "SCT")
+seurat.merge <- RunPCA(seurat.merge, verbose = FALSE)
+seurat.merge <- RunUMAP(seurat.merge, reduction = "pca", dims = 1:30)
+saveRDS(seurat.merge, "./data/Ibex_SCdata.rds")
 
 ############################
 #Call Somatic Hypermutation
