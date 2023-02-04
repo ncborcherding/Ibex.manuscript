@@ -205,11 +205,7 @@ seurat.list <- lapply(X = seurat.list, function(x) {
   trans
 })
 features <- SelectIntegrationFeatures(object.list = seurat.list, nfeatures = 3000)
-
-unwanted_genes <- "^IG[HLK][VDJCAGM]"
-unwanted_genes <- grep(pattern = unwanted_genes, x = features, value = TRUE)
-unwanted_genes <- c(unwanted_genes , "JCHAIN")
-features <- features[features %!in% unwanted_genes]
+features <- Ibex::quietBCRgenes(features)
 seurat.list <- PrepSCTIntegration(object.list = seurat.list, anchor.features = features)
 
 immune.anchors <- FindIntegrationAnchors(object.list = seurat.list, normalization.method = "SCT", anchor.features = features)
@@ -217,45 +213,59 @@ seurat.merge <- IntegrateData(anchorset = immune.anchors, normalization.method =
 seurat.merge <- RunPCA(seurat.merge, verbose = FALSE)
 seurat.merge <- RunUMAP(seurat.merge, reduction = "pca", dims = 1:30)
 saveRDS(seurat.merge, "./data/Ibex_SCdata.rds")
-
-############################
-#Call Somatic Hypermutation
-############################
-
 ```
 
 
 ```{r}
 dir.create("./output")
 
-SeuratObj <- readRDS("./data/Ibex_FullExample.rds")
+seurat.merge <- readRDS("./data/Ibex_SCdata.rds")
 
 ############################
 #Adding Vgenes to meta data
 ###########################
 
-SeuratObj$Heavy.V <- str_split(SeuratObj$CTgene, "[.]", simplify = TRUE)[,1]
-SeuratObj$Light.V <- str_split(str_split(SeuratObj$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,1]
-
-
+seurat.merge$Heavy.V <- str_split(seurat.merge$CTgene, "[.]", simplify = TRUE)[,1]
+seurat.merge$Light.V <- str_split(str_split(seurat.merge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,1]
 
 ##################
 #Running Ibex
 ################
-SeuratObj <- runIbex(SeuratObj, 
+seurat.merge  <- runIbex(seurat.merge, 
                     chains = "Heavy",
                     AA.properties = "KF", 
                     reduction.name = "Ibex.H.KF")
 
-SeuratObj <- runIbex(SeuratObj, 
+seurat.merge  <- runIbex(seurat.merge, 
                     chains = "Light",
                     AA.properties = "KF", 
                     reduction.name = "Ibex.L.KF")
 
+seurat.merge  <- runIbex(seurat.merge, 
+                    chains = "Heavy",
+                    AA.properties = "AF", 
+                    reduction.name = "Ibex.H.AF")
 
-plot.df <- data.frame(SeuratObj[[]], 
-                      SeuratObj@reductions$Ibex.H.KF@cell.embeddings[,c(1:2)], 
-                      SeuratObj@reductions$Ibex.L.KF@cell.embeddings[,c(1:2)])
+seurat.merge  <- runIbex(seurat.merge, 
+                    chains = "Light",
+                    AA.properties = "AF", 
+                    reduction.name = "Ibex.L.AF")
+
+seurat.merge  <- runIbex(seurat.merge, 
+                    chains = "Heavy",
+                    AA.properties = "OHE", 
+                    reduction.name = "Ibex.H.KF")
+
+seurat.merge  <- runIbex(seurat.merge, 
+                    chains = "Light",
+                    AA.properties = "OHE", 
+                    reduction.name = "Ibex.L.KF")
+
+saveRDS(seurat.merge, "./data/Ibex_SCdata.rds")
+
+plot.df <- data.frame(seurat.merge[[]], 
+                      seurat.merge@reductions$Ibex.H.KF@cell.embeddings[,c(1:2)], 
+                      seurat.merge@reductions$Ibex.L.KF@cell.embeddings[,c(1:2)])
 
 ggplot(plot.df, aes(x = IbexHKF_1, y = IbexHKF_2)) + 
   geom_point(aes(size = n, color = Heavy.V))
@@ -279,6 +289,11 @@ ggsave("./output/Ibex_heavy_vgenes.pdf", height = 3.5, width = 3.5)
 light.plot.V 
 ggsave("./output/Ibex_light_vgenes.pdf", height = 3.5, width = 3.5)
 ```
+
+
+############################
+#Call Somatic Hypermutation
+############################
 
 ## Calculating Clonal Lineages and Hypermutation
 
