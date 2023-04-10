@@ -198,8 +198,7 @@ seurat.merge <- readRDS("./data/Ibex_SCdata.rds")
 seurat.list <- SplitObject(seurat.merge, split.by = "orig.ident")
 seurat.list <- lapply(X = seurat.list, function(x) {
   trans <- SCTransform(x,
-                        vars.to.regress = c('percent.mt', 'percent.rb', "nCount_RNA"), 
-                        vst.flavor = "v2",
+                        vars.to.regress = c('percent.mt', 'percent.rb', "nCount_RNA"),
                         min_cells = 3, 
                         verbose = FALSE)
   trans
@@ -222,11 +221,19 @@ dir.create("./output")
 seurat.merge <- readRDS("./data/Ibex_SCdata.rds")
 
 ############################
-#Adding Vgenes to meta data
+#Adding genes to meta data
 ###########################
 
 seurat.merge$Heavy.V <- str_split(seurat.merge$CTgene, "[.]", simplify = TRUE)[,1]
 seurat.merge$Light.V <- str_split(str_split(seurat.merge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,1]
+
+seurat.merge$Heavy.D <- str_split(seurat.merge$CTgene, "[.]", simplify = TRUE)[,2]
+
+seurat.merge$Heavy.J <- str_split(seurat.merge$CTgene, "[.]", simplify = TRUE)[,3]
+seurat.merge$Light.V <- str_split(str_split(seurat.merge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,2]
+
+seurat.merge$Heavy.C <- str_split(str_split(seurat.merge$CTgene, "[.]", simplify = TRUE)[,4], "[_]", simplify = TRUE)[,1]
+seurat.merge$Light.C <- str_split(str_split(seurat.merge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,3]
 
 ##################
 #Running Ibex
@@ -254,34 +261,41 @@ seurat.merge  <- runIbex(seurat.merge,
 seurat.merge  <- runIbex(seurat.merge, 
                     chains = "Heavy",
                     AA.properties = "OHE", 
-                    reduction.name = "Ibex.H.KF")
+                    reduction.name = "Ibex.H.OHE")
 
 seurat.merge  <- runIbex(seurat.merge, 
                     chains = "Light",
                     AA.properties = "OHE", 
-                    reduction.name = "Ibex.L.KF")
+                    reduction.name = "Ibex.L.OHE")
 
+
+seurat.merge$status <- ifelse(seurat.merge$orig.ident %in% c("HD1", "HD2", "HD3", "HD4", "HD5"), "Healthy", "MIS")
 saveRDS(seurat.merge, "./data/Ibex_SCdata.rds")
 
-############################
-#Call Somatic Hypermutation
-############################
+cells <- which(seurat.merge[[]]$orig.ident %in% c("P1.1", "P2.1"))
 
-plot.df <- data.frame(seurat.merge[[]], 
-                      seurat.merge@reductions$Ibex.H.KF@cell.embeddings[,c(1:2)], 
-                      seurat.merge@reductions$Ibex.L.KF@cell.embeddings[,c(1:2)])
-
-ggplot(plot.df, aes(x = IbexHKF_1, y = IbexHKF_2)) + 
-  geom_point(aes(size = n, color = Heavy.V))
-
-heavy.plot.V <- DimPlot(SeuratObj, reduction = "Ibex.H.KF", group.by = "Heavy.V") + 
+heavy.plot.V <- DimPlot(seurat.merge[,cells], reduction = "Ibex.H.KF", group.by = "Heavy.V") + 
                   scale_color_viridis(discrete = TRUE) + 
                   theme_void() + 
                   guides(fill = "none") + 
                   theme(plot.title = element_blank()) +
                   NoLegend()
 
-light.plot.V <- DimPlot(SeuratObj, reduction = "Ibex.L.KF", group.by = "Light.V") + 
+DimPlot(seurat.merge[,cells], reduction = "Ibex.H.KF", group.by = "orig.ident") + 
+                  scale_color_viridis(discrete = TRUE) + 
+                  theme_void() + 
+                  guides(fill = "none") + 
+                  theme(plot.title = element_blank()) +
+                  NoLegend()
+
+light.plot.V <- DimPlot(seurat.merge, reduction = "Ibex.L.KF", group.by = "Light.V") + 
+                  scale_color_viridis(discrete = TRUE) + 
+                  theme_void() + 
+                  guides(fill = "none") + 
+                  theme(plot.title = element_blank()) +
+                  NoLegend()
+
+DimPlot(seurat.merge[,cells], reduction = "Ibex.L.KF", group.by = "orig.ident") + 
                   scale_color_viridis(discrete = TRUE) + 
                   theme_void() + 
                   guides(fill = "none") + 
@@ -294,57 +308,66 @@ light.plot.V
 ggsave("./output/Ibex_light_vgenes.pdf", height = 3.5, width = 3.5)
 ```
 
-
-
+# Call Somatic Hypermutation
 
 ## Calculating Clonal Lineages and Hypermutation
 
-Here we will use the immunarch R package to further characterize the clonal lineage information from the B cells. 
+Unfortunately only cdr3 sequences are available for these data sets - in order to call clonally related clonotypes, we will use edit distances and VDJ genes to identify clonal groups. This step was actually performed during ```combineBCR()``` where normalized edit difference of 0.85 are grouped together. 
 
 ```{r}
-BCR.contigs <- read.csv("./data/GSM5073091_PBMC_P1.1_MIS-C_Severe_BCR_filtered_contig_annotations.csv.gz")
-BCR.contigs <- BCR.contigs[BCR.contigs$productive == "True",]
-BCR.contigs <- unique(BCR.contigs[,c("barcode", "raw_clonotype_id")])
-BCR.contigs$barcode <- paste0("MIS.sample_", BCR.contigs$barcode)
+seurat.merge$Light.group <- stringr::str_split(seurat.merge$CTstrict, "_", simplify = TRUE)[,2]
+seurat.merge$Light.group <- ifelse(seurat.merge$Light.group %in% names(which(table(seurat.merge[,cells]$Light.group) >= 10)), seurat.merge$Light.group, NA)
 
-barcodes <- BCR.contigs$barcode
+seurat.merge$Heavy.group <- stringr::str_split(seurat.merge$CTstrict, "_", simplify = TRUE)[,1]
+seurat.merge$Heavy.group <- ifelse(seurat.merge$Heavy.group %in% names(which(table(seurat.merge[,cells]$Heavy.group) >= 10)), seurat.merge$Heavy.group, NA)
 
-BCR.contigs <- data.frame(clonotype = BCR.contigs[,2])
-rownames(BCR.contigs) <- barcodes
-
-SeuratObj <- AddMetaData(SeuratObj, BCR.contigs)
-
-light.plot.Cl <- DimPlot(SeuratObj, reduction = "Ibex.L.KF", group.by = "clonotype") + 
-                      scale_color_viridis(discrete = TRUE, option = "H") + 
+light.plot.Cl <- DimPlot(seurat.merge[,cells], 
+                         reduction = "Ibex.L.KF", 
+                         group.by = "Light.group", 
+                         order = ) + 
+                      scale_color_viridis(discrete = TRUE, option = "H", na.value = "grey") + 
                       theme_void() + 
-                      guides(fill = "none") + 
-                      theme(plot.title = element_blank()) +
-                      NoLegend()
+                      theme(plot.title = element_blank()) 
 
-heavy.plot.Cl <-DimPlot(SeuratObj, reduction = "Ibex.H.KF", group.by = "clonotype") + 
-                      scale_color_viridis(discrete = TRUE, option = "H") + 
+heavy.plot.Cl <-DimPlot(seurat.merge[,cells], reduction = "Ibex.H.KF", group.by = "Heavy.group") + 
+                      scale_color_viridis(discrete = TRUE, option = "H", na.value = "grey") + 
                       theme_void() + 
-                      guides(fill = "none") + 
-                      theme(plot.title = element_blank()) +
-                      NoLegend()
+                      theme(plot.title = element_blank()) 
 
 heavy.plot.Cl
-ggsave("./output/Ibex_heavy_cluster.pdf", height = 3.5, width = 3.5)
+ggsave("./output/Ibex_heavy_cluster.pdf", height = 3.5, width = 5)
 light.plot.Cl
-ggsave("./output/Ibex_light_cluster.pdf", height = 3.5, width = 3.5)
+ggsave("./output/Ibex_light_cluster.pdf", height = 3.5, width = 6)
+```
 
-meta <- SeuratObj[[]]
+
+```{r}
+seurat.merge$Light.length <- nchar(stringr::str_split(seurat.merge$CTaa, "_", simplify = TRUE)[,2])
+seurat.merge$Heavy.length <- nchar(stringr::str_split(seurat.merge$CTaa, "_", simplify = TRUE)[,1])
+
+
+DimPlot(seurat.merge[,cells], reduction = "Ibex.L.KF", group.by = "Light.length") + 
+                      scale_color_viridis(discrete = TRUE) + 
+                      theme_void() + 
+                      theme(plot.title = element_blank()) 
+ggsave("./output/Ibex_light_cdr3length.pdf", height = 3.5, width = 5)
+
+DimPlot(seurat.merge[,cells], reduction = "Ibex.H.KF", group.by = "Heavy.length") + 
+                      scale_color_viridis(discrete = TRUE) + 
+                      theme_void() + 
+                      theme(plot.title = element_blank()) 
+ggsave("./output/Ibex_heavy_cdr3length.pdf", height = 3.5, width = 5)
 ```
 
 
 ## Reducing the data set to clonotypes
 
 ```{r}
-conga <- CoNGAfy(SeuratObj, 
+conga <- CoNGAfy(seurat.merge, 
                  assay = c("RNA", "ADT"))
 
 #Get count of number of clones
-meta <- SeuratObj[[]]
+meta <- seurat.merge[[]]
 clone.count <- meta %>%
   group_by(CTaa) %>%
   summarise(n = n()) %>%
