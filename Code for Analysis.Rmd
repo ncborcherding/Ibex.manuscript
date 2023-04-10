@@ -21,7 +21,7 @@ suppressPackageStartupMessages(library(patchwork))
 
 ```{r}
 library(reticulate)
-Sys.setenv(RETICULATE_PYTHON = "/Users/ncborch/Library/r-miniconda-arm64/envs/r-reticulate/bin/python")
+#Sys.setenv(RETICULATE_PYTHON = "/Users/ncborch/Library/r-miniconda-arm64/envs/r-reticulate/bin/python")
 use_condaenv(condaenv = "r-reticulate", required = TRUE)
 ```
 
@@ -37,7 +37,7 @@ source("./R/auto.encoder.R")
 
 #CDR3 sequences that the autoencoders have never seen before
 unique.heavy <- readRDS("./data/naive.heavy.rds")
-unique.light <- readRDS("./data/naive.heavy.rds")
+unique.light <- readRDS("./data/naive.light.rds")
 
 
 ######################
@@ -263,6 +263,10 @@ seurat.merge  <- runIbex(seurat.merge,
 
 saveRDS(seurat.merge, "./data/Ibex_SCdata.rds")
 
+############################
+#Call Somatic Hypermutation
+############################
+
 plot.df <- data.frame(seurat.merge[[]], 
                       seurat.merge@reductions$Ibex.H.KF@cell.embeddings[,c(1:2)], 
                       seurat.merge@reductions$Ibex.L.KF@cell.embeddings[,c(1:2)])
@@ -291,9 +295,7 @@ ggsave("./output/Ibex_light_vgenes.pdf", height = 3.5, width = 3.5)
 ```
 
 
-############################
-#Call Somatic Hypermutation
-############################
+
 
 ## Calculating Clonal Lineages and Hypermutation
 
