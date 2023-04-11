@@ -79,6 +79,7 @@ for(i in seq_along(chain.list)) {
 }
 final.output <- as.data.frame(final.output)
 colnames(final.output) <- c("unique.cdr3", "runtime", "chain", "property", "num.cdr3.tested", "boot.strap")
+rownames(final.output) <- NULL
 
 saveRDS(final.output, "./output/Benchmarking.results.rds")
 ```
