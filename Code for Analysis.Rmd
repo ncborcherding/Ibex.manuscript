@@ -482,24 +482,6 @@ for (k in seq_along(light)) {
 
 
 
-light.plot.Cl <- DimPlot(seurat.merge[,cells], 
-                         reduction = "Ibex.L.KF", 
-                         group.by = "Light.group", 
-                         order = ) + 
-                      scale_color_viridis(discrete = TRUE, option = "H", na.value = "grey") + 
-                      theme_void() + 
-                      theme(plot.title = element_blank()) 
-ggsave("./output/Ibex_light_cluster.pdf", height = 3.5, width = 6)
-
-heavy.plot.Cl <-DimPlot(seurat.merge[,cells],
-                        reduction = "Ibex.H.KF",
-                        group.by = "Heavy.group") + 
-                      scale_color_viridis(discrete = TRUE, option = "H", na.value = "grey") + 
-                      theme_void() + 
-                      theme(plot.title = element_blank()) 
-ggsave("./output/Ibex_heavy_cluster.pdf", height = 3.5, width = 5)
-```
-
 
 ```{r}
 seurat.merge$Light.length <- nchar(stringr::str_split(seurat.merge$CTaa, "_", simplify = TRUE)[,2])
@@ -522,8 +504,22 @@ ggsave("./output/Ibex_heavy_cdr3length.pdf", height = 3.5, width = 5)
 
 ## Reducing the data set to clonotypes
 
+We are selecting only the P1.1 and P2.1 samples as they have GEX, ADT, and TCR sequencing.
+
 ```{r}
-conga <- CoNGAfy(seurat.merge[cells,], 
+cells <- which(seurat.merge[[]]$orig.ident %in% c("P1.1", "P2.1"))
+
+subset.Obj <- subset(seurat.merge, cells = rownames(seurat.merge[[]][cells,])) 
+
+subset.Obj <- RunPCA(subset.Obj, verbose = FALSE)
+
+subset.Obj <- NormalizeData(subset.Obj, assay = "ADT", normalization.method = 'CLR', margin = 2) 
+IG.ADT <- grep("Ig",  rownames(subset.Obj[["ADT"]]))
+VariableFeatures(subset.Obj, assay = "ADT") <- rownames(subset.Obj[["ADT"]])[-IG.ADT] #Removing Immunoglobulins from DimRed
+subset.Obj <- ScaleData(subset.Obj, assay = "ADT")
+subset.Obj <- RunPCA(subset.Obj, reduction.name = 'apca', assay = "ADT")
+
+conga <- CoNGAfy(subset.Obj, 
                  assay = c("RNA", "ADT"))
 
 #Get count of number of clones
@@ -661,28 +657,15 @@ plot.combined +
   theme_void() + 
   NoLegend()
 ggsave("./output/clonotype_combined_umap.pdf", height = 3.5, width = 3.5)
-  
 
 saveRDS(conga, file = "./data/Ibex_ClonotypeRep.rds")
 ```
 
 
+# Conclusions
+
 ```{r}
-cells <- which(seurat.merge[[]]$orig.ident %in% c("P3.2", "P3.1", "P4.1", "P4.2"))
-
-meta <- seurat.merge[[]][cells,]
-meta <- data.frame(meta, seurat.merge@reductions$Ibex.H.KF@cell.embeddings[cells,])
-meta <- meta[,c(1,18:19,27:57)]
-x <- calculateTSNE(t(meta[,5:34]))
-x <- as.data.frame(x)
-ggplot(x,aes(x=,x[,1], y = x[,2])) + 
-    stat_density_2d(aes(fill = stat(level)), 
-                  geom = "polygon", bins = 30) + 
-    facet_wrap(~meta[,1]) + 
-    scale_fill_viridis() + 
-    xlim(-45,45) + 
-    ylim(-40,40)
+sessionInfo()
 ```
-
 
 
