@@ -273,40 +273,61 @@ seurat.merge  <- runIbex(seurat.merge,
 seurat.merge$status <- ifelse(seurat.merge$orig.ident %in% c("HD1", "HD2", "HD3", "HD4", "HD5"), "Healthy", "MIS")
 saveRDS(seurat.merge, "./data/Ibex_SCdata.rds")
 
-cells <- which(seurat.merge[[]]$orig.ident %in% c("P1.1", "P2.1"))
+cells <- which(seurat.merge[[]]$orig.ident %in% c("P1.1", "P2.1", "HD1", "HD4"))
 
-heavy.plot.V <- DimPlot(seurat.merge[,cells], reduction = "Ibex.H.KF", group.by = "Heavy.V") + 
+DimPlot(seurat.merge[,cells], reduction = "Ibex.H.KF", group.by = "Heavy.V") + 
                   scale_color_viridis(discrete = TRUE) + 
                   theme_void() + 
                   guides(fill = "none") + 
                   theme(plot.title = element_blank()) +
                   NoLegend()
+ggsave("./output/Ibex_heavy_vgenes_KF.pdf", height = 3.5, width = 3.5)
 
-DimPlot(seurat.merge[,cells], reduction = "Ibex.H.KF", group.by = "orig.ident") + 
+DimPlot(seurat.merge, reduction = "Ibex.L.KF", group.by = "Light.V") + 
                   scale_color_viridis(discrete = TRUE) + 
                   theme_void() + 
                   guides(fill = "none") + 
                   theme(plot.title = element_blank()) +
                   NoLegend()
+ggsave("./output/Ibex_light_vgenes_KF.pdf", height = 3.5, width = 3.5)
 
-light.plot.V <- DimPlot(seurat.merge, reduction = "Ibex.L.KF", group.by = "Light.V") + 
+#############################
+#Supplemental Visualizations
+#############################
+
+DimPlot(seurat.merge[,cells], reduction = "Ibex.H.AF", group.by = "Heavy.V") + 
                   scale_color_viridis(discrete = TRUE) + 
                   theme_void() + 
                   guides(fill = "none") + 
                   theme(plot.title = element_blank()) +
                   NoLegend()
+ggsave("./output/Ibex_heavy_vgenes_AF.pdf", height = 3.5, width = 3.5)
 
-DimPlot(seurat.merge[,cells], reduction = "Ibex.L.KF", group.by = "orig.ident") + 
+DimPlot(seurat.merge, reduction = "Ibex.L.AF", group.by = "Light.V") + 
                   scale_color_viridis(discrete = TRUE) + 
                   theme_void() + 
                   guides(fill = "none") + 
                   theme(plot.title = element_blank()) +
                   NoLegend()
+ggsave("./output/Ibex_light_vgenes_AF.pdf", height = 3.5, width = 3.5)
 
-heavy.plot.V 
-ggsave("./output/Ibex_heavy_vgenes.pdf", height = 3.5, width = 3.5)
-light.plot.V 
-ggsave("./output/Ibex_light_vgenes.pdf", height = 3.5, width = 3.5)
+DimPlot(seurat.merge[,cells], reduction = "Ibex.H.OHE", group.by = "Heavy.V") + 
+                  scale_color_viridis(discrete = TRUE) + 
+                  theme_void() + 
+                  guides(fill = "none") + 
+                  theme(plot.title = element_blank()) +
+                  NoLegend()
+ggsave("./output/Ibex_heavy_vgenes_OHE.pdf", height = 3.5, width = 3.5)
+
+
+DimPlot(seurat.merge, reduction = "Ibex.L.OHE", group.by = "Light.V") + 
+                  scale_color_viridis(discrete = TRUE) + 
+                  theme_void() + 
+                  guides(fill = "none") + 
+                  theme(plot.title = element_blank()) +
+                  NoLegend()
+ggsave("./output/Ibex_light_vgenes_OHE.pdf", height = 3.5, width = 3.5)
+
 ```
 
 # Call Somatic Hypermutation
@@ -321,6 +342,145 @@ seurat.merge$Light.group <- ifelse(seurat.merge$Light.group %in% names(which(tab
 
 seurat.merge$Heavy.group <- stringr::str_split(seurat.merge$CTstrict, "_", simplify = TRUE)[,1]
 seurat.merge$Heavy.group <- ifelse(seurat.merge$Heavy.group %in% names(which(table(seurat.merge[,cells]$Heavy.group) >= 10)), seurat.merge$Heavy.group, NA)
+```
+
+# Ploting Latent Dimensions
+
+```{r}
+
+heavy <- c("Ibex.H.KF", "Ibex.H.AF","Ibex.H.OHE")
+light <- c("Ibex.L.KF", "Ibex.L.AF","Ibex.L.OHE")
+cells <- which(seurat.merge[[]]$orig.ident %in% c("P1.1", "P2.1", "HD1", "HD4"))
+    
+for (j in seq_along(heavy)) {
+        Dim.plot.H <- DimPlot(seurat.merge[,cells], reduction = heavy[j], group.by = "Heavy.V") + 
+                          scale_color_viridis(discrete = TRUE) + 
+                          theme_void() + 
+                          guides(fill = "none") + 
+                          theme(plot.title = element_blank()) +
+                          NoLegend()
+        
+        Dim.plot.Ident <- DimPlot(seurat.merge[,cells], reduction = heavy[j], group.by = "orig.ident") + 
+                              scale_color_viridis(discrete = TRUE) + 
+                              theme_void() + 
+                              guides(fill = "none") + 
+                              theme(plot.title = element_blank())
+        tmp <- subset(seurat.merge, cells = rownames(seurat.merge[[]])[cells])
+        
+        #Calculate MDS   
+        d <- dist(tmp@reductions[[heavy[j]]]@cell.embeddings)
+        mds <- cmdscale(d = d, k = 2)
+        colnames(mds) <- paste0("MDS_", 1:2)
+        tmp[["mds"]] <- CreateDimReducObject(embeddings = mds, key = "MDS_", assay = DefaultAssay(tmp))
+         
+        MDS.plot.H <- DimPlot(tmp, reduction = "mds", group.by = "Heavy.V") + 
+                          scale_color_viridis(discrete = TRUE) + 
+                          theme_void() + 
+                          guides(fill = "none") + 
+                          theme(plot.title = element_blank()) +
+                          NoLegend() 
+        
+         MDS.plot.Ident <- DimPlot(tmp, reduction = "mds", group.by = "orig.ident") + 
+                              scale_color_viridis(discrete = TRUE) + 
+                              theme_void() + 
+                              guides(fill = "none") + 
+                              theme(plot.title = element_blank())
+         
+         MDS.plot.Heavy <- DimPlot(tmp, reduction = "mds", group.by = "Heavy.C") + 
+                              scale_color_viridis(discrete = TRUE) + 
+                              theme_void() + 
+                              guides(fill = "none") + 
+                              theme(plot.title = element_blank())
+         
+         tmp$Heavy.length <- nchar(stringr::str_split(tmp$CTaa, "_", simplify = TRUE)[,1])
+         
+         MDS.plot.HeavyL <- FeaturePlot(tmp, reduction = "mds", features = "Heavy.length") + 
+                              scale_color_viridis() + 
+                              theme_void() + 
+                              guides(fill = "none") + 
+                              theme(plot.title = element_blank())
+         
+          DimPlot(tmp, 
+                         reduction = "mds", 
+                         group.by = "Heavy.group", ) + 
+                      scale_color_viridis(discrete = TRUE, option = "H", na.value = "grey") + 
+                      theme_void() + 
+                      theme(plot.title = element_blank()) 
+          ggsave(paste0("./output/", heavy[j], "_cluster.pdf"), height = 3.5, width = 6)
+          
+          
+         
+         Dim.plot.H + Dim.plot.Ident + MDS.plot.H + MDS.plot.Ident + MDS.plot.Heavy + MDS.plot.HeavyL + plot_layout(ncol = 2)
+    ggsave(paste0("./output/", heavy[j], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), ".png"), height = 12, width = 8, dpi = 600)
+}
+    
+for (k in seq_along(light)) {
+        Dim.plot.H <- DimPlot(seurat.merge[,cells], reduction = light[k], group.by = "Light.V") + 
+                          scale_color_viridis(discrete = TRUE) + 
+                          theme_void() + 
+                          guides(fill = "none") + 
+                          theme(plot.title = element_blank()) +
+                          NoLegend()
+        
+        Dim.plot.Ident <- DimPlot(seurat.merge[,cells], reduction = light[k], group.by = "orig.ident") + 
+                              scale_color_viridis(discrete = TRUE) + 
+                              theme_void() + 
+                              guides(fill = "none") + 
+                              theme(plot.title = element_blank())
+        tmp <- subset(seurat.merge, cells = rownames(seurat.merge[[]])[cells])
+        
+        #Calculate MDS  
+        d <- dist(tmp@reductions[[light[k]]]@cell.embeddings)
+        mds <- cmdscale(d = d, k = 2)
+        colnames(mds) <- paste0("MDS_", 1:2)
+        tmp[["mds"]] <- CreateDimReducObject(embeddings = mds, key = "MDS_", assay = DefaultAssay(tmp))
+        
+         
+        MDS.plot.H <- DimPlot(tmp, reduction = "mds", group.by = "Light.V") + 
+                          scale_color_viridis(discrete = TRUE) + 
+                          theme_void() + 
+                          guides(fill = "none") + 
+                          theme(plot.title = element_blank()) +
+                          NoLegend()
+        
+         MDS.plot.Ident <- DimPlot(tmp, reduction = "mds", group.by = "orig.ident") + 
+                              scale_color_viridis(discrete = TRUE) + 
+                              theme_void() + 
+                              guides(fill = "none") + 
+                              theme(plot.title = element_blank())
+         
+         MDS.plot.Light <- DimPlot(tmp, reduction = "mds", group.by = "Light.C") + 
+                              scale_color_viridis(discrete = TRUE) + 
+                              theme_void() + 
+                              guides(fill = "none") + 
+                              theme(plot.title = element_blank())
+         
+         tmp$Light.length <- nchar(stringr::str_split(tmp$CTaa, "_", simplify = TRUE)[,2])
+         
+         MDS.plot.LightL <- FeaturePlot(tmp, reduction = "mds", features = "Light.length") + 
+                              scale_color_viridis() + 
+                              theme_void() + 
+                              guides(fill = "none") + 
+                              theme(plot.title = element_blank())
+         
+         DimPlot(tmp, 
+                         reduction = "mds", 
+                         group.by = "Light.group", ) + 
+                      scale_color_viridis(discrete = TRUE, option = "H", na.value = "grey") + 
+                      theme_void() + 
+                      theme(plot.title = element_blank()) + 
+                              theme(plot.title = element_blank())
+          ggsave(paste0("./output/", light[j], "_cluster.pdf"), height = 3.5, width = 8)
+
+         
+         Dim.plot.H + Dim.plot.Ident + MDS.plot.H + MDS.plot.Ident + MDS.plot.Light + MDS.plot.LightL + plot_layout(ncol = 2)
+    ggsave(paste0("./output/", light[k], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), ".png"), height = 12, width = 8)
+}
+```
+
+
+
+
 
 light.plot.Cl <- DimPlot(seurat.merge[,cells], 
                          reduction = "Ibex.L.KF", 
@@ -329,16 +489,15 @@ light.plot.Cl <- DimPlot(seurat.merge[,cells],
                       scale_color_viridis(discrete = TRUE, option = "H", na.value = "grey") + 
                       theme_void() + 
                       theme(plot.title = element_blank()) 
+ggsave("./output/Ibex_light_cluster.pdf", height = 3.5, width = 6)
 
-heavy.plot.Cl <-DimPlot(seurat.merge[,cells], reduction = "Ibex.H.KF", group.by = "Heavy.group") + 
+heavy.plot.Cl <-DimPlot(seurat.merge[,cells],
+                        reduction = "Ibex.H.KF",
+                        group.by = "Heavy.group") + 
                       scale_color_viridis(discrete = TRUE, option = "H", na.value = "grey") + 
                       theme_void() + 
                       theme(plot.title = element_blank()) 
-
-heavy.plot.Cl
 ggsave("./output/Ibex_heavy_cluster.pdf", height = 3.5, width = 5)
-light.plot.Cl
-ggsave("./output/Ibex_light_cluster.pdf", height = 3.5, width = 6)
 ```
 
 
@@ -364,7 +523,7 @@ ggsave("./output/Ibex_heavy_cdr3length.pdf", height = 3.5, width = 5)
 ## Reducing the data set to clonotypes
 
 ```{r}
-conga <- CoNGAfy(seurat.merge, 
+conga <- CoNGAfy(seurat.merge[cells,], 
                  assay = c("RNA", "ADT"))
 
 #Get count of number of clones
@@ -506,4 +665,24 @@ ggsave("./output/clonotype_combined_umap.pdf", height = 3.5, width = 3.5)
 
 saveRDS(conga, file = "./data/Ibex_ClonotypeRep.rds")
 ```
+
+
+```{r}
+cells <- which(seurat.merge[[]]$orig.ident %in% c("P3.2", "P3.1", "P4.1", "P4.2"))
+
+meta <- seurat.merge[[]][cells,]
+meta <- data.frame(meta, seurat.merge@reductions$Ibex.H.KF@cell.embeddings[cells,])
+meta <- meta[,c(1,18:19,27:57)]
+x <- calculateTSNE(t(meta[,5:34]))
+x <- as.data.frame(x)
+ggplot(x,aes(x=,x[,1], y = x[,2])) + 
+    stat_density_2d(aes(fill = stat(level)), 
+                  geom = "polygon", bins = 30) + 
+    facet_wrap(~meta[,1]) + 
+    scale_fill_viridis() + 
+    xlim(-45,45) + 
+    ylim(-40,40)
+```
+
+
 
