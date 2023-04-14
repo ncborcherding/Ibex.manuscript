@@ -400,6 +400,12 @@ for (j in seq_along(heavy)) {
                               guides(fill = "none") + 
                               theme(plot.title = element_blank())
          
+         Dim.plot.HeavyL <- FeaturePlot(tmp, reduction = heavy[j], features = "Heavy.length") + 
+                              scale_color_viridis() + 
+                              theme_void() + 
+                              guides(fill = "none") + 
+                              theme(plot.title = element_blank())
+         
           DimPlot(tmp, 
                          reduction = "mds", 
                          group.by = "Heavy.group", ) + 
@@ -410,8 +416,11 @@ for (j in seq_along(heavy)) {
           
           
          
-         Dim.plot.H + Dim.plot.Ident + MDS.plot.H + MDS.plot.Ident + MDS.plot.Heavy + MDS.plot.HeavyL + plot_layout(ncol = 2)
-    ggsave(paste0("./output/", heavy[j], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), ".png"), height = 12, width = 8, dpi = 600)
+         Dim.plot.H + Dim.plot.Ident + MDS.plot.H + MDS.plot.Ident + plot_layout(ncol = 2)
+    ggsave(paste0("./output/", heavy[j], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), ".png"), height = 8, width = 8, dpi = 600)
+    
+     Dim.plot.HeavyL + MDS.plot.HeavyL + plot_layout(ncol = 2)
+    ggsave(paste0("./output/", heavy[j], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), "_length.png"), height = 4, width = 8)
 }
     
 for (k in seq_along(light)) {
@@ -463,6 +472,12 @@ for (k in seq_along(light)) {
                               guides(fill = "none") + 
                               theme(plot.title = element_blank())
          
+         Dim.plot.LightL <- FeaturePlot(tmp, reduction = light[k], features = "Light.length") + 
+                              scale_color_viridis() + 
+                              theme_void() + 
+                              guides(fill = "none") + 
+                              theme(plot.title = element_blank())
+         
          DimPlot(tmp, 
                          reduction = "mds", 
                          group.by = "Light.group", ) + 
@@ -473,12 +488,13 @@ for (k in seq_along(light)) {
           ggsave(paste0("./output/", light[j], "_cluster.pdf"), height = 3.5, width = 8)
 
          
-         Dim.plot.H + Dim.plot.Ident + MDS.plot.H + MDS.plot.Ident + MDS.plot.Light + MDS.plot.LightL + plot_layout(ncol = 2)
-    ggsave(paste0("./output/", light[k], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), ".png"), height = 12, width = 8)
+         Dim.plot.H + Dim.plot.Ident + MDS.plot.H + MDS.plot.Ident  + plot_layout(ncol = 2)
+    ggsave(paste0("./output/", light[k], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), ".png"), height = 8, width = 8)
+    
+    Dim.plot.LightL + MDS.plot.LightL + plot_layout(ncol = 2)
+    ggsave(paste0("./output/", light[k], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), "_length.png"), height = 4, width = 8)
 }
 ```
-
-
 
 
 
@@ -533,6 +549,33 @@ ID <- clone.count$CTaa
 clone.count <- data.frame(n = clone.count[,2])
 rownames(clone.count) <- ID
 conga <- AddMetaData(conga, clone.count)
+
+meta <- subset.Obj[[]]
+CTaa.unique <- unique(meta$CTaa)
+for(i in seq_along(CTaa.unique)) {
+  meta.tmp <- meta[meta$CTaa == CTaa.unique[i],]
+  CTaa.tmp <- c(CTaa = unique(meta.tmp$CTaa), 
+                donor = (paste(str_sort(unique(meta.tmp$orig.ident)), collapse = ";")), 
+                H.V = paste(str_sort(unique(meta.tmp$Heavy.V)), collapse = ";"), 
+                H.C = paste(str_sort(unique(meta.tmp$Heavy.C)), collapse = ";"), 
+                L.V = paste(str_sort(unique(meta.tmp$Light.V)), collapse = ";"), 
+                L.C = paste(str_sort(unique(meta.tmp$Light.C)), collapse = ";"),
+                Heavy.group = paste(str_sort(unique(meta.tmp$Heavy.group)), collapse = ";"), 
+                Light.group = paste(str_sort(unique(meta.tmp$Light.group)), collapse = ";"), 
+                status <- paste(str_sort(unique(meta.tmp$status)), collapse = ";"))
+  if(i == 1) {
+    CTaa.Library <- CTaa.tmp
+  } else {
+    CTaa.Library <- rbind(CTaa.Library, CTaa.tmp)
+  }
+}
+CTaa.Library <- as.data.frame(CTaa.Library)
+aa <- CTaa.Library$CTaa
+CTaa.Library <- CTaa.Library[,-1]
+rownames(CTaa.Library) <- aa
+colnames(CTaa.Library)[8] <- c("status")
+
+conga <- AddMetaData(conga, CTaa.Library)
 
 DefaultAssay(conga) <- 'RNA'
 conga <- NormalizeData(conga) %>% 
@@ -658,9 +701,24 @@ plot.combined +
   NoLegend()
 ggsave("./output/clonotype_combined_umap.pdf", height = 3.5, width = 3.5)
 
+CD45.plot <- FeaturePlot(conga, 
+                 reduction = "trimodal.umap", 
+                 features = c("CD45RA", "CD45RO"), 
+                 cols = viridis_pal()(50), 
+                 combine = FALSE) 
+
+for(i in seq_along(CD45.plot)) {
+  CD45.plot[[i]] <- CD45.plot[[i]] + 
+              guides(color = "none") + 
+              theme_void() + 
+              theme(plot.title = element_blank(), 
+                    plot.margin = unit(c(0.6, 0.15, 0.6, 0.15), "cm"))
+}
+plot_a_list(CD45.plot,2,1)
+ggsave("./output/combined_CD45plots.png", height = 10, width = 5, dpi = 600)
+
 saveRDS(conga, file = "./data/Ibex_ClonotypeRep.rds")
 ```
-
 
 # Conclusions
 
