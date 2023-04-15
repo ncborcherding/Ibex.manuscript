@@ -4,7 +4,9 @@ author: "Nick Borcherding"
 date: "4/14/2023"
 output: html_document
 ---
+# Getting Started
 
+## Loading Libraries
 ```{r}
 suppressPackageStartupMessages(library(Seurat))
 suppressPackageStartupMessages(library(ggplot2))
@@ -18,11 +20,12 @@ suppressPackageStartupMessages(library(Ibex))
 suppressPackageStartupMessages(library(mumosa))
 suppressPackageStartupMessages(library(patchwork))
 ```
-
+## Loading Pythong and Functions
 ```{r}
 library(reticulate)
-#Sys.setenv(RETICULATE_PYTHON = "/Users/ncborch/Library/r-miniconda-arm64/envs/r-reticulate/bin/python")
 use_condaenv(condaenv = "r-reticulate", required = TRUE)
+source("./R/utils.R")
+source("./R/auto.encoder.R")
 ```
 
 # Ibex performance on naive repertoire
@@ -32,9 +35,6 @@ use_condaenv(condaenv = "r-reticulate", required = TRUE)
 BCR sequences being loaded are sequences never seen by the autoencoder. The R folder contains stripped down version of the Ibex encoders to allow for the comparisons without the need for single-cell data.
 
 ```{r, eval=FALSE}
-source("./R/utils.R")
-source("./R/auto.encoder.R")
-
 #CDR3 sequences that the autoencoders have never seen before
 unique.heavy <- readRDS("./data/naive.heavy.rds")
 unique.light <- readRDS("./data/naive.light.rds")
@@ -118,7 +118,7 @@ ggsave("./output/benchmarking.pdf", height = 7, width = 7)
 
 # The Data Set
 
-To show the multiple options of Ibex, the example data is derived from [this manuscript (https://pubmed.ncbi.nlm.nih.gov/33891889/) - multimodal single-cell characterization of COVID19-associated multisystem inflammatory syndrome in children. The data example built into the package (ibex_example) is derived from randomly sampling cells from Patient 1.
+To show the multiple options of Ibex, the example data is derived from [this manuscript (https://pubmed.ncbi.nlm.nih.gov/33891889/) - multimodal single-cell characterization of COVID-19-associated multisystem inflammatory syndrome in children. The data example built into the package (ibex_example) is derived from randomly sampling cells from Patient 1. For the manuscript, we incorporate several additional samples but focus on Patient 1, Patient 2, Healthy Donor 1, and Healthy Donor 4. The clonotype reduction is performed only on Patients 1 and , as these are the only MIS patients with GEX + ADT + TCR sequencing. 
 
 ## Preprocessing Data
 
@@ -215,11 +215,13 @@ seurat.merge <- RunUMAP(seurat.merge, reduction = "pca", dims = 1:30)
 saveRDS(seurat.merge, "./data/Ibex_SCdata.rds")
 ```
 
-
+## Adding meta data
 ```{r}
 dir.create("./output")
 
 seurat.merge <- readRDS("./data/Ibex_SCdata.rds")
+
+seurat.merge$status <- ifelse(seurat.merge$orig.ident %in% c("HD1", "HD2", "HD3", "HD4", "HD5"), "Healthy", "MIS")
 
 ############################
 #Adding genes to meta data
@@ -227,15 +229,12 @@ seurat.merge <- readRDS("./data/Ibex_SCdata.rds")
 
 seurat.merge$Heavy.V <- str_split(seurat.merge$CTgene, "[.]", simplify = TRUE)[,1]
 seurat.merge$Light.V <- str_split(str_split(seurat.merge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,1]
-
-seurat.merge$Heavy.D <- str_split(seurat.merge$CTgene, "[.]", simplify = TRUE)[,2]
-
-seurat.merge$Heavy.J <- str_split(seurat.merge$CTgene, "[.]", simplify = TRUE)[,3]
-seurat.merge$Light.V <- str_split(str_split(seurat.merge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,2]
-
 seurat.merge$Heavy.C <- str_split(str_split(seurat.merge$CTgene, "[.]", simplify = TRUE)[,4], "[_]", simplify = TRUE)[,1]
 seurat.merge$Light.C <- str_split(str_split(seurat.merge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,3]
+```
 
+# Running Autoencoders using Ibex
+```{r}
 ##################
 #Running Ibex
 ################
@@ -270,8 +269,13 @@ seurat.merge  <- runIbex(seurat.merge,
                     reduction.name = "Ibex.L.OHE")
 
 
-seurat.merge$status <- ifelse(seurat.merge$orig.ident %in% c("HD1", "HD2", "HD3", "HD4", "HD5"), "Healthy", "MIS")
+
 saveRDS(seurat.merge, "./data/Ibex_SCdata.rds")
+```
+
+## Subsetting and visualizing latent dimensions
+
+```{r}
 
 cells <- which(seurat.merge[[]]$orig.ident %in% c("P1.1", "P2.1", "HD1", "HD4"))
 
@@ -330,24 +334,9 @@ ggsave("./output/Ibex_light_vgenes_OHE.pdf", height = 3.5, width = 3.5)
 
 ```
 
-# Call Somatic Hypermutation
-
-## Calculating Clonal Lineages and Hypermutation
-
-Unfortunately only cdr3 sequences are available for these data sets - in order to call clonally related clonotypes, we will use edit distances and VDJ genes to identify clonal groups. This step was actually performed during ```combineBCR()``` where normalized edit difference of 0.85 are grouped together. 
+# Plotting Latent Dimensions
 
 ```{r}
-seurat.merge$Light.group <- stringr::str_split(seurat.merge$CTstrict, "_", simplify = TRUE)[,2]
-seurat.merge$Light.group <- ifelse(seurat.merge$Light.group %in% names(which(table(seurat.merge[,cells]$Light.group) >= 10)), seurat.merge$Light.group, NA)
-
-seurat.merge$Heavy.group <- stringr::str_split(seurat.merge$CTstrict, "_", simplify = TRUE)[,1]
-seurat.merge$Heavy.group <- ifelse(seurat.merge$Heavy.group %in% names(which(table(seurat.merge[,cells]$Heavy.group) >= 10)), seurat.merge$Heavy.group, NA)
-```
-
-# Ploting Latent Dimensions
-
-```{r}
-
 heavy <- c("Ibex.H.KF", "Ibex.H.AF","Ibex.H.OHE")
 light <- c("Ibex.L.KF", "Ibex.L.AF","Ibex.L.OHE")
 cells <- which(seurat.merge[[]]$orig.ident %in% c("P1.1", "P2.1", "HD1", "HD4"))
@@ -496,29 +485,7 @@ for (k in seq_along(light)) {
 }
 ```
 
-
-
-
-```{r}
-seurat.merge$Light.length <- nchar(stringr::str_split(seurat.merge$CTaa, "_", simplify = TRUE)[,2])
-seurat.merge$Heavy.length <- nchar(stringr::str_split(seurat.merge$CTaa, "_", simplify = TRUE)[,1])
-
-
-DimPlot(seurat.merge[,cells], reduction = "Ibex.L.KF", group.by = "Light.length") + 
-                      scale_color_viridis(discrete = TRUE) + 
-                      theme_void() + 
-                      theme(plot.title = element_blank()) 
-ggsave("./output/Ibex_light_cdr3length.pdf", height = 3.5, width = 5)
-
-DimPlot(seurat.merge[,cells], reduction = "Ibex.H.KF", group.by = "Heavy.length") + 
-                      scale_color_viridis(discrete = TRUE) + 
-                      theme_void() + 
-                      theme(plot.title = element_blank()) 
-ggsave("./output/Ibex_heavy_cdr3length.pdf", height = 3.5, width = 5)
-```
-
-
-## Reducing the data set to clonotypes
+# Reducing the data set to clonotypes
 
 We are selecting only the P1.1 and P2.1 samples as they have GEX, ADT, and TCR sequencing.
 
@@ -550,6 +517,7 @@ clone.count <- data.frame(n = clone.count[,2])
 rownames(clone.count) <- ID
 conga <- AddMetaData(conga, clone.count)
 
+#Getting the meta data reattached
 meta <- subset.Obj[[]]
 CTaa.unique <- unique(meta$CTaa)
 for(i in seq_along(CTaa.unique)) {
@@ -605,8 +573,6 @@ conga <- runIbex(conga,
                     chains = "Light",
                     AA.properties = "KF", 
                     reduction.name = "Ibex.L.KF")
-
-
 
 ###################
 #Trimodal Embedding
@@ -667,7 +633,11 @@ conga <- RunUMAP(conga,
                      dims = 1:130, 
                      reduction.name = 'trimodal.umap', 
                      reduction.key = 'trimodalUMAP_')
+```
 
+## Plotting dimensional reduction for individual clonotypes
+
+```{r}
 plot.rna <- DimPlot(conga, reduction = "rna.umap") + NoLegend()
 plot.adt <- DimPlot(conga, reduction = "adt.umap") + NoLegend()
 plot.heavy <- DimPlot(conga, reduction = "heavy.umap") + NoLegend()
@@ -718,6 +688,149 @@ plot_a_list(CD45.plot,2,1)
 ggsave("./output/combined_CD45plots.png", height = 10, width = 5, dpi = 600)
 
 saveRDS(conga, file = "./data/Ibex_ClonotypeRep.rds")
+```
+
+# Comparing outputs to the Benisse pipeline
+
+The combination of gene expression and cdr3 sequence encoding for B cell receptors is a relatively new concept, but there exist an alternative pipeline for heavy chain + expression embedding, called [Benisse](https://github.com/wooyongc/Benisse) with the accompanying [manuscript](https://www.nature.com/articles/s42256-022-00492-6). In order to benchmark our approach, below is the code for the integration and visualization of both outputs for Patient 1 and Patient 2. The Benisse pipeline outputs are available in the *./data/Benisse*.
+
+## Loading and combining data 
+
+```{r}
+load("./data/Benisse/PT1.1/Benisse_results.RData")
+Ben.P1 <- results
+
+load("./data/Benisse/PT2.1/Benisse_results.RData")
+Ben.P2 <- results
+
+conga$Heavy <- str_split(conga$CTaa, "_", simplify = TRUE)[,1]
+conga.P1 <- subset(conga, donor == "P1.1")
+conga.P2 <- subset(conga, donor == "P2.1")
+```
+
+## Integrating the two pipelines
+```{r}
+conga.list <- list(conga.P1, conga.P2)
+ben.list <- list(Ben.P1, Ben.P2)
+
+for (i in 1:2) {
+  distMatrix <- ben.list[[i]]$master_dist_e
+  
+  # matrix of neighbours from Benisse
+  k=20
+  n = nrow(distMatrix)
+  nn = matrix(0,n,k) # n x k
+  for (x in 1:n) {
+     nn[x,] = k.nearest.neighbors(x, distMatrix, k = k)
+  }
+  rownames(nn) <- ben.list[[i]]$meta_dedup$cdr3
+  
+  conga.tmp <- subset(conga.list[[i]], cells = rownames(conga.list[[i]]@meta.data)[conga.list[[i]]$Heavy %in% rownames(nn)])
+  
+  meta <- conga.tmp[[]]
+  ben.meta <-  ben.list[[i]]$meta_dedup
+  meta <- merge(meta, ben.meta, by.x = "Heavy", by.y = "cdr3")
+  clones <- meta$CTaa
+  if(any(duplicated(clones))) {
+    meta <- meta[-which(duplicated(clones)),]
+    clones <- clones[-which(duplicated(clones))]
+  }
+  rownames(meta) <- clones
+  conga.tmp <- AddMetaData(conga.tmp, meta)
+
+
+  #Generating a GEX + BCR comparison
+  output <- rescaleByNeighbors(
+                    list(conga.tmp[["Ibex.H.KF"]]@cell.embeddings, 
+                        conga.tmp[["pca"]]@cell.embeddings),
+                        k = 50)
+  
+  conga.tmp[["Bimodal.Embed"]] <- CreateDimReducObject(
+                                  embeddings = as.matrix(output),
+                                  stdev = rep(0, ncol(output)),
+                                  key = "Combined",
+                                  jackstraw = NULL,
+                                  misc = list())
+  
+  conga.tmp <- FindNeighbors(conga.tmp, 
+                         reduction = "Bimodal.Embed", 
+                         dims = 1:80, 
+                         graph.name = c("Ibex_nn", "Ibex_snn"))
+  conga.tmp <- FindClusters(conga.tmp,
+                        graph.name = "Ibex_nn",
+                        algorithm = 4)
+  conga.tmp <- RunUMAP(conga.tmp, assay = "RNA", dims = 1:30)
+  
+  df <- conga.tmp[[]]
+  
+  bar.plot <- ggplot(df, aes(x=seurat_clusters, fill = as.factor(cluster))) + 
+                geom_bar(position = "fill", color = "black") + 
+                scale_fill_viridis(discrete = TRUE, na.value = "grey", option = "H") + 
+                guides(fill = "none") + 
+                coord_flip() + 
+                ylab("Proportion") + 
+                xlab("Ibex RNA + BCR Clusters") + 
+                theme_bw()
+  
+  Ben.cluster <- DimPlot(conga.tmp, group.by = "cluster", reduction = "umap") +
+                    scale_color_viridis(option = "H", discrete = TRUE, na.value = "grey") + 
+                    theme_void()+
+                    NoLegend() + 
+                    theme(plot.title = element_blank())
+
+  Ibex.cluster <- DimPlot(conga.tmp, group.by = "seurat_clusters", reduction = "umap") + 
+                    scale_color_viridis(option = "H", discrete = TRUE, na.value = "grey") +
+                    theme_void()+
+                    NoLegend() + 
+                    theme(plot.title = element_blank())
+
+
+
+  neighbor.output <- NULL
+  for (y in seq_len(nrow(nn))) {
+    if (rownames(nn)[y] %in% conga.tmp$Heavy) {
+      ben.nn <- rownames(nn)[nn[y,]]
+      clone.pos <- which(rownames(nn)[y] == conga.tmp$Heavy)
+      conga.pos <- which(conga.tmp@graphs$Ibex_nn[clone.pos,] > 0)
+      conga.nn <- conga.tmp$Heavy[conga.pos]
+      intersect <- length(intersect(ben.nn, conga.nn))
+      neighbor.output <- rbind(neighbor.output, c(rownames(nn)[y], intersect, length(unique(conga.nn)), length(unique(ben.nn))))
+    } else {
+      next()
+    }
+  }
+  neighbor.output <- as.data.frame(neighbor.output)
+  colnames(neighbor.output) <- c("Heavy", "Overlap", "Ibex", "Ben")
+  df <- merge(df, neighbor.output, by = "Heavy")
+  df$Jaccard <- as.numeric(df$Overlap)/(as.numeric(df$Ibex) + as.numeric(df$Ben))
+  df$Dice <- (2 * as.numeric(df$Overlap))/(as.numeric(df$Ibex) + as.numeric(df$Ben))
+
+  JI.plot <- ggplot(df, aes(x=1, y = Jaccard)) + 
+                geom_boxplot() + 
+                ylim(0, 0.5) + 
+                ylab("Jaccard Index") + 
+                coord_fixed() + 
+                coord_flip() + 
+                theme_bw() + 
+                theme(axis.title.y = element_blank(), 
+                      axis.ticks.y = element_blank(), 
+                      axis.text.y = element_blank())
+
+  DI.plot <- ggplot(df, aes(x=1, y = Dice)) + 
+                geom_boxplot() + 
+                ylim(0, 0.5) + 
+                ylab("Sørensen/Dice Index") + 
+                coord_fixed() + 
+                coord_flip() + 
+                theme_bw() + 
+                theme(axis.title.y = element_blank(), 
+                      axis.ticks.y = element_blank(), 
+                      axis.text.y = element_blank())
+
+  Ben.cluster + bar.plot + Ibex.cluster + JI.plot / DI.plot + 
+    plot_layout(widths = c(2, 1))
+  ggsave(paste0("./output/Patient", i, "BenisseComparison.pdf"), height = 10, width = 10)
+}
 ```
 
 # Conclusions

@@ -74,3 +74,10 @@ aa.model.loader <- function(chain, AA.properties) {
   model <- quiet(load_model_hdf5(select, compile = FALSE))
   return(model)
 }
+
+#When you get obsessive about UMAPs
+plot_a_list <- function(master_list_with_plots, no_of_rows, no_of_cols) {
+  
+  patchwork::wrap_plots(master_list_with_plots, 
+                        nrow = no_of_rows, ncol = no_of_cols)
+}
