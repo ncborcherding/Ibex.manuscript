@@ -8,17 +8,21 @@ output: html_document
 
 ## Loading Libraries
 ```{r}
-suppressPackageStartupMessages(library(Seurat))
-suppressPackageStartupMessages(library(ggplot2))
-suppressPackageStartupMessages(library(dplyr))
-suppressPackageStartupMessages(library(gridExtra))
-suppressPackageStartupMessages(library(viridis))
-suppressPackageStartupMessages(library(RColorBrewer))
-suppressPackageStartupMessages(library(Matrix))
-suppressPackageStartupMessages(library(stringr))
-suppressPackageStartupMessages(library(Ibex))
-suppressPackageStartupMessages(library(mumosa))
-suppressPackageStartupMessages(library(patchwork))
+suppressPackageStartupMessages({
+    library(Seurat)
+    library(ggplot2)
+    library(dplyr)
+    library(gridExtra)
+    library(viridis)
+    library(RColorBrewer)
+    library(Matrix)
+    library(stringr)
+    library(Ibex)
+    library(mumosa)
+    library(patchwork)
+    library(ggthemes)
+    library(FastKNN)
+})
 ```
 ## Loading Pythong and Functions
 ```{r}
@@ -394,15 +398,6 @@ for (j in seq_along(heavy)) {
                               theme_void() + 
                               guides(fill = "none") + 
                               theme(plot.title = element_blank())
-         
-          DimPlot(tmp, 
-                         reduction = "mds", 
-                         group.by = "Heavy.group", ) + 
-                      scale_color_viridis(discrete = TRUE, option = "H", na.value = "grey") + 
-                      theme_void() + 
-                      theme(plot.title = element_blank()) 
-          ggsave(paste0("./output/", heavy[j], "_cluster.pdf"), height = 3.5, width = 6)
-          
           
          
          Dim.plot.H + Dim.plot.Ident + MDS.plot.H + MDS.plot.Ident + plot_layout(ncol = 2)
@@ -467,15 +462,6 @@ for (k in seq_along(light)) {
                               guides(fill = "none") + 
                               theme(plot.title = element_blank())
          
-         DimPlot(tmp, 
-                         reduction = "mds", 
-                         group.by = "Light.group", ) + 
-                      scale_color_viridis(discrete = TRUE, option = "H", na.value = "grey") + 
-                      theme_void() + 
-                      theme(plot.title = element_blank()) + 
-                              theme(plot.title = element_blank())
-          ggsave(paste0("./output/", light[j], "_cluster.pdf"), height = 3.5, width = 8)
-
          
          Dim.plot.H + Dim.plot.Ident + MDS.plot.H + MDS.plot.Ident  + plot_layout(ncol = 2)
     ggsave(paste0("./output/", light[k], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), ".png"), height = 8, width = 8)
@@ -527,10 +513,7 @@ for(i in seq_along(CTaa.unique)) {
                 H.V = paste(str_sort(unique(meta.tmp$Heavy.V)), collapse = ";"), 
                 H.C = paste(str_sort(unique(meta.tmp$Heavy.C)), collapse = ";"), 
                 L.V = paste(str_sort(unique(meta.tmp$Light.V)), collapse = ";"), 
-                L.C = paste(str_sort(unique(meta.tmp$Light.C)), collapse = ";"),
-                Heavy.group = paste(str_sort(unique(meta.tmp$Heavy.group)), collapse = ";"), 
-                Light.group = paste(str_sort(unique(meta.tmp$Light.group)), collapse = ";"), 
-                status <- paste(str_sort(unique(meta.tmp$status)), collapse = ";"))
+                L.C = paste(str_sort(unique(meta.tmp$Light.C)), collapse = ";"))
   if(i == 1) {
     CTaa.Library <- CTaa.tmp
   } else {
@@ -541,7 +524,7 @@ CTaa.Library <- as.data.frame(CTaa.Library)
 aa <- CTaa.Library$CTaa
 CTaa.Library <- CTaa.Library[,-1]
 rownames(CTaa.Library) <- aa
-colnames(CTaa.Library)[8] <- c("status")
+colnames(CTaa.Library)[5] <- c("Light.C")
 
 conga <- AddMetaData(conga, CTaa.Library)
 
