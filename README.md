@@ -15,16 +15,13 @@ providing ease to the incorporation of many single-cell workflows and multimodal
 ### Directory Structure 
 ```
 ├── data
-│   ├── Ibex_FullExample.rds #All B cells
 │   ├── Ibex_ClonotypeRep.rds #Reduced to clonotype
 │   ├── ibex.data.rda #amino acid properties
 │   ├── naive.heavy.rds #heavy chain cdr3
 |   ├── naive.light.rds #heavy chain cdr3
+|   ├── Benisse #outputs from the Benisse package for comparisons
 |   └── SequencingRuns #Selecting runs from GSE166489
-├── R #Functions written for Benchmarking
-├── Output #Benchmarking and Visualization in Manuscript
-|   └── Ibex_ClonotypeRep.rds #Reduced to clonotype
-├── Output #Visualization in Manuscript
+├── R #Functions written for processing and benchmarking
 └── Code for Analysis.Rmd
 ```
 
