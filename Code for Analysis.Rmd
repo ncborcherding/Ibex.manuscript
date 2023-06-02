@@ -291,7 +291,7 @@ DimPlot(seurat.merge[,cells], reduction = "Ibex.H.KF", group.by = "Heavy.V") +
                   NoLegend()
 ggsave("./output/Ibex_heavy_vgenes_KF.pdf", height = 3.5, width = 3.5)
 
-DimPlot(seurat.merge, reduction = "Ibex.L.KF", group.by = "Light.V") + 
+DimPlot(seurat.merge, reduction = "Ibex.L.KF", group.by = "Light.V", dims = c(3,4)) + 
                   scale_color_viridis(discrete = TRUE) + 
                   theme_void() + 
                   guides(fill = "none") + 
@@ -311,7 +311,7 @@ DimPlot(seurat.merge[,cells], reduction = "Ibex.H.AF", group.by = "Heavy.V") +
                   NoLegend()
 ggsave("./output/Ibex_heavy_vgenes_AF.pdf", height = 3.5, width = 3.5)
 
-DimPlot(seurat.merge, reduction = "Ibex.L.AF", group.by = "Light.V") + 
+DimPlot(seurat.merge, reduction = "Ibex.L.AF", group.by = "Light.V", dims = c(1,4)) + 
                   scale_color_viridis(discrete = TRUE) + 
                   theme_void() + 
                   guides(fill = "none") + 
@@ -328,7 +328,7 @@ DimPlot(seurat.merge[,cells], reduction = "Ibex.H.OHE", group.by = "Heavy.V") +
 ggsave("./output/Ibex_heavy_vgenes_OHE.pdf", height = 3.5, width = 3.5)
 
 
-DimPlot(seurat.merge, reduction = "Ibex.L.OHE", group.by = "Light.V") + 
+DimPlot(seurat.merge, reduction = "Ibex.L.OHE", group.by = "Light.V", dims = c(2,3)) + 
                   scale_color_viridis(discrete = TRUE) + 
                   theme_void() + 
                   guides(fill = "none") + 
@@ -346,18 +346,6 @@ light <- c("Ibex.L.KF", "Ibex.L.AF","Ibex.L.OHE")
 cells <- which(seurat.merge[[]]$orig.ident %in% c("P1.1", "P2.1", "HD1", "HD4"))
     
 for (j in seq_along(heavy)) {
-        Dim.plot.H <- DimPlot(seurat.merge[,cells], reduction = heavy[j], group.by = "Heavy.V") + 
-                          scale_color_viridis(discrete = TRUE) + 
-                          theme_void() + 
-                          guides(fill = "none") + 
-                          theme(plot.title = element_blank()) +
-                          NoLegend()
-        
-        Dim.plot.Ident <- DimPlot(seurat.merge[,cells], reduction = heavy[j], group.by = "orig.ident") + 
-                              scale_color_viridis(discrete = TRUE) + 
-                              theme_void() + 
-                              guides(fill = "none") + 
-                              theme(plot.title = element_blank())
         tmp <- subset(seurat.merge, cells = rownames(seurat.merge[[]])[cells])
         
         #Calculate MDS   
@@ -393,33 +381,13 @@ for (j in seq_along(heavy)) {
                               guides(fill = "none") + 
                               theme(plot.title = element_blank())
          
-         Dim.plot.HeavyL <- FeaturePlot(tmp, reduction = heavy[j], features = "Heavy.length") + 
-                              scale_color_viridis() + 
-                              theme_void() + 
-                              guides(fill = "none") + 
-                              theme(plot.title = element_blank())
           
          
-         Dim.plot.H + Dim.plot.Ident + MDS.plot.H + MDS.plot.Ident + plot_layout(ncol = 2)
-    ggsave(paste0("./output/", heavy[j], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), ".png"), height = 8, width = 8, dpi = 600)
-    
-     Dim.plot.HeavyL + MDS.plot.HeavyL + plot_layout(ncol = 2)
-    ggsave(paste0("./output/", heavy[j], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), "_length.png"), height = 4, width = 8)
+         MDS.plot.Ident + MDS.plot.HeavyL + MDS.plot.H + MDS.plot.Heavy + plot_layout(ncol = 2)
+    ggsave(paste0("./output/", heavy[j], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), "_MDS.png"), height = 8, width = 8, dpi = 600)
 }
     
 for (k in seq_along(light)) {
-        Dim.plot.H <- DimPlot(seurat.merge[,cells], reduction = light[k], group.by = "Light.V") + 
-                          scale_color_viridis(discrete = TRUE) + 
-                          theme_void() + 
-                          guides(fill = "none") + 
-                          theme(plot.title = element_blank()) +
-                          NoLegend()
-        
-        Dim.plot.Ident <- DimPlot(seurat.merge[,cells], reduction = light[k], group.by = "orig.ident") + 
-                              scale_color_viridis(discrete = TRUE) + 
-                              theme_void() + 
-                              guides(fill = "none") + 
-                              theme(plot.title = element_blank())
         tmp <- subset(seurat.merge, cells = rownames(seurat.merge[[]])[cells])
         
         #Calculate MDS  
@@ -463,11 +431,8 @@ for (k in seq_along(light)) {
                               theme(plot.title = element_blank())
          
          
-         Dim.plot.H + Dim.plot.Ident + MDS.plot.H + MDS.plot.Ident  + plot_layout(ncol = 2)
-    ggsave(paste0("./output/", light[k], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), ".png"), height = 8, width = 8)
-    
-    Dim.plot.LightL + MDS.plot.LightL + plot_layout(ncol = 2)
-    ggsave(paste0("./output/", light[k], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), "_length.png"), height = 4, width = 8)
+         MDS.plot.Ident + MDS.plot.LightL + MDS.plot.H + MDS.plot.Light + plot_layout(ncol = 2)
+    ggsave(paste0("./output/", light[k], "_", paste0(c("P1.1", "P2.1", "HD1", "HD4"), collapse = "."), "_MDS.png"), height = 8, width = 8)
 }
 ```
 
