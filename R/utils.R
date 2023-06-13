@@ -23,7 +23,7 @@ auto.embedder <- function(array.reshape, aa.model, local.max, local.min, AA.prop
     }
   }
   array.reshape[is.na(array.reshape)] <- 0
-  score <- stats::predict(aa.model, t(array.reshape))
+  score <- stats::predict(aa.model, t(array.reshape), verbose = 0)
   return(score)
 }
 
@@ -69,7 +69,6 @@ aa.range.loader <- function(chain, AA.properties, ibex.data) {
 library(tensorflow)
 library(keras)
 aa.model.loader <- function(chain, AA.properties) {
-  quiet(tensorflow::tf$compat$v1$disable_eager_execution())
   select  <- paste0("./encoders/", chain, "_", AA.properties, "_Encoder.h5")
   model <- quiet(load_model_hdf5(select, compile = FALSE))
   return(model)
