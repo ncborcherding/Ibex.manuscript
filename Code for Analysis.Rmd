@@ -465,7 +465,7 @@ conga <- NormalizeData(conga, normalization.method = 'CLR', margin = 2) %>%
 conga <- runIbex(conga, 
                     chains = "Heavy",
                     AA.properties = "KF", 
-                    reduction.name = "Ibex.H.KF")
+                    reduction.name = "Ibex.H.KF2")
 
 conga <- runIbex(conga, 
                     chains = "Light",
@@ -493,7 +493,7 @@ conga <- FindNeighbors(conga,
                        dims = 1:130, 
                        graph.name = c("Ibex_nn", "Ibex_snn"))
 conga <- FindClusters(conga,
-                      graph.name = "Ibex_nn",
+                      graph.name = "Ibex_snn",
                       algorithm = 4)
 
 #######################################
@@ -531,11 +531,14 @@ conga <- RunUMAP(conga,
                      dims = 1:130, 
                      reduction.name = 'trimodal.umap', 
                      reduction.key = 'trimodalUMAP_')
+
+saveRDS(conga, file = "./data/Ibex_ClonotypeRep.rds")
 ```
 
 ## Plotting dimensional reduction for individual clonotypes
 
 ```{r}
+conga <- readRDS("./data/Ibex_ClonotypeRep.rds")
 plot.rna <- DimPlot(conga, reduction = "rna.umap") + NoLegend()
 plot.adt <- DimPlot(conga, reduction = "adt.umap") + NoLegend()
 plot.heavy <- DimPlot(conga, reduction = "heavy.umap") + NoLegend()
