@@ -92,7 +92,11 @@ saveRDS(final.output, "./output/Benchmarking.results.rds")
 ## Graphing the Benchmarking results
 
 ```{r}
-final.output <- readRDS("./output/Benchmarking.results.rds")
+final.output <- list.files("./metrics", full.names = TRUE)
+final.output <- lapply(final.output, readRDS)
+final.output <- do.call(rbind, final.output) %>%
+  as.data.frame()
+
 
 plot1 <- ggplot(final.output, aes(x = as.numeric(num.cdr3.tested), y = as.numeric(unique.cdr3), group = interaction(as.numeric(num.cdr3.tested),property))) + 
   geom_smooth(method = "lm", color = "black", size = 0.5) + 
