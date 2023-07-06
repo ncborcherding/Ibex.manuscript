@@ -469,7 +469,7 @@ conga <- NormalizeData(conga, normalization.method = 'CLR', margin = 2) %>%
 conga <- runIbex(conga, 
                     chains = "Heavy",
                     AA.properties = "KF", 
-                    reduction.name = "Ibex.H.KF2")
+                    reduction.name = "Ibex.H.KF")
 
 conga <- runIbex(conga, 
                     chains = "Light",
@@ -677,6 +677,20 @@ for (i in 1:2) {
                 xlab("Ibex RNA + BCR Clusters") + 
                 theme_bw()
   
+  
+    breakdown <- bluster::pairwiseRand(ref=df$seurat_clusters, alt=df$Ibex_snn_res.0.8, mode="ratio")
+    breakdown <- reshape2::melt(breakdown)
+    
+    ARI <- ggplot(breakdown, aes(x= as.factor(Var1), y = as.factor(Var2), fill = value)) + 
+      geom_tile(color = "black") + 
+      theme_classic() + 
+      labs(fill="ARI") + 
+      scale_fill_viridis(na.value = "white")+
+      theme(axis.title = element_blank(), 
+            axis.ticks = element_blank(),)
+  
+  
+  
   Ben.cluster <- DimPlot(conga.tmp, group.by = "cluster", reduction = "umap") +
                     scale_color_viridis(option = "H", discrete = TRUE, na.value = "grey") + 
                     theme_void()+
@@ -732,10 +746,19 @@ for (i in 1:2) {
                       axis.ticks.y = element_blank(), 
                       axis.text.y = element_blank())
 
-  Ben.cluster + bar.plot + Ibex.cluster + JI.plot / DI.plot + 
-    plot_layout(widths = c(2, 1))
+
+  x <- bar.plot / ARI + {
+      JI.plot / DI.plot + 
+      plot_layout(ncol=1)
+    }
+
+ ((Ben.cluster + Ibex.cluster  + plot_layout(ncol = 1)) | x)  + 
+    plot_layout(widths = c(2,1))
   ggsave(paste0("./output/Patient", i, "BenisseComparison.pdf"), height = 10, width = 10)
 }
+
+ 
+ 
 ```
 
 # Conclusions
