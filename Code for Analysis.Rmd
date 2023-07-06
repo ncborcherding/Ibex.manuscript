@@ -690,7 +690,6 @@ for (i in 1:2) {
             axis.ticks = element_blank(),)
   
   
-  
   Ben.cluster <- DimPlot(conga.tmp, group.by = "cluster", reduction = "umap") +
                     scale_color_viridis(option = "H", discrete = TRUE, na.value = "grey") + 
                     theme_void()+
