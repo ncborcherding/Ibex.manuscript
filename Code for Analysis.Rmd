@@ -51,14 +51,12 @@ unique.light <- readRDS("./data/naive.light.rds")
 set.seed(42)
 chain.list <- list(unique.heavy, unique.light)
 names(chain.list) <- c("Heavy", "Light")
-num.chains <- c(10,100,1000,10000, 100000)
-boot.straps <- 1:10
+num.chains <- c(10,100,1000,10000,100000)
+boot.straps <- 1:5
 AA.list <- c("KF", "AF", "OHE")
 
-final.output <- NULL
-chain.output <- NULL
+
 int.output <- NULL
-boot.output <- NULL
 for(i in seq_along(chain.list)) {
     for(j in seq_along(num.chains)) {
       tmp.chain <- chain.list[[i]][sample(length(chain.list[[i]]), num.chains[j])]
@@ -73,19 +71,12 @@ for(i in seq_along(chain.list)) {
           out <- c(nrow(unique(out.tmp)), runtime, names(chain.list)[i], AA.list[l], num.chains[j], boot.straps[k])
           int.output <- rbind(int.output, out)
         }
-        boot.output <- rbind(boot.output, int.output)
-        int.output <- NULL
       }
-      chain.output <- rbind(chain.output, boot.output)
-      boot.output <- NULL
+      colnames(int.output) <- c("unique.cdr3", "runtime", "chain", "property", "num.cdr3.tested", "boot.strap")
+      rownames(int.output) <- NULL
+      saveRDS(int.output, paste0("./metrics/", names(chain.list)[i], "_num.", num.chains[j], "_bs.", boot.straps[k], ".rds"))
     }
-  final.output <- rbind(final.output, chain.output)
 }
-final.output <- as.data.frame(final.output)
-colnames(final.output) <- c("unique.cdr3", "runtime", "chain", "property", "num.cdr3.tested", "boot.strap")
-rownames(final.output) <- NULL
-
-saveRDS(final.output, "./output/Benchmarking.results.rds")
 ```
 
 
