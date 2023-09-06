@@ -1,7 +1,7 @@
 ---
 title: "Ibex Manuscript Analysis"
 author: "Nick Borcherding"
-date: "5/13/2022"
+date: "9/6/2023"
 output: html_document
 ---
 # Getting Started
@@ -24,94 +24,11 @@ suppressPackageStartupMessages({
     library(FastKNN)
 })
 ```
+
 ## Loading Pythong and Functions
 ```{r}
 library(reticulate)
 use_condaenv(condaenv = "r-reticulate", required = TRUE)
-source("./R/utils.R")
-source("./R/auto.encoder.R")
-```
-
-# Ibex performance on naive repertoire
-
-## Loading BCR sequences 
-
-BCR sequences being loaded are sequences never seen by the autoencoder. The R folder contains stripped down version of the Ibex encoders to allow for the comparisons without the need for single-cell data.
-
-```{r, eval=FALSE}
-#CDR3 sequences that the autoencoders have never seen before
-unique.heavy <- readRDS("./data/naive.heavy.rds")
-unique.light <- readRDS("./data/naive.light.rds")
-
-
-######################
-#Setting up the loops
-#####################
-#Testing both chains, 3 AA property encoders, testing time for chains, and bootstrapping everything together
-set.seed(42)
-chain.list <- list(unique.heavy, unique.light)
-names(chain.list) <- c("Heavy", "Light")
-num.chains <- c(10,100,1000,10000,100000)
-boot.straps <- 1:5
-AA.list <- c("KF", "AF", "OHE")
-
-
-int.output <- NULL
-for(i in seq_along(chain.list)) {
-    for(j in seq_along(num.chains)) {
-      tmp.chain <- chain.list[[i]][sample(length(chain.list[[i]]), num.chains[j])]
-      for(k in seq_along(boot.straps)) {
-        for(l in seq_along(AA.list)) {
-          start_time <- Sys.time()
-          out.tmp <- auto.encoder(tmp.chain, 
-                         chain = names(chain.list)[i], 
-                         AA.properties = AA.list[l])
-          end_time <- Sys.time()
-          runtime <- end_time - start_time
-          out <- c(nrow(unique(out.tmp)), runtime, names(chain.list)[i], AA.list[l], num.chains[j], boot.straps[k])
-          int.output <- rbind(int.output, out)
-        }
-      }
-      colnames(int.output) <- c("unique.cdr3", "runtime", "chain", "property", "num.cdr3.tested", "boot.strap")
-      rownames(int.output) <- NULL
-      saveRDS(int.output, paste0("./metrics/", names(chain.list)[i], "_num.", num.chains[j], "_bs.", boot.straps[k], ".rds"))
-    }
-}
-```
-
-
-## Graphing the Benchmarking results
-
-```{r}
-final.output <- list.files("./metrics", full.names = TRUE)
-final.output <- lapply(final.output, readRDS)
-final.output <- do.call(rbind, final.output) %>%
-  as.data.frame()
-
-
-plot1 <- ggplot(final.output, aes(x = as.numeric(num.cdr3.tested), y = as.numeric(unique.cdr3), group = interaction(as.numeric(num.cdr3.tested),property))) + 
-  geom_smooth(method = "lm", color = "black", size = 0.5) + 
-  geom_jitter(aes(color = property)) + 
-  scale_x_log10() + 
-  scale_y_log10() + 
-  xlab("cdr3 sequences tested") + 
-  ylab("unique encoded values") + 
-  scale_color_viridis(discrete = TRUE)+
-  facet_grid(.~chain) + 
-  theme_bw()
-
-plot2 <- ggplot(final.output, aes(x = as.numeric(num.cdr3.tested), y = as.numeric(runtime), group = property)) + 
-  geom_smooth(method = "loess", size = 0.5, aes(color = property)) + 
-  geom_point(aes(color = property)) + 
-   xlab("cdr3 sequences tested") + 
-  ylab("time (s)") + 
-  scale_x_log10() + 
-  scale_color_viridis(discrete = TRUE)+
-  facet_grid(.~chain) + 
-  theme_bw()
-
-plot1 + plot2 + plot_layout(ncol = 1)
-ggsave("./output/benchmarking.pdf", height = 7, width = 7)
 ```
 
 
@@ -237,34 +154,47 @@ seurat.merge$Light.C <- str_split(str_split(seurat.merge$CTgene, "[_]", simplify
 ##################
 #Running Ibex
 ################
+                    
 seurat.merge  <- runIbex(seurat.merge, 
                     chains = "Heavy",
-                    AA.properties = "KF", 
+                    method = "encoder",
+                    encoder.model = "AE", 
+                    encoder.input = "KF", 
                     reduction.name = "Ibex.H.KF")
 
 seurat.merge  <- runIbex(seurat.merge, 
-                    chains = "Light",
-                    AA.properties = "KF", 
+                    chains = "Heavy",
+                    method = "encoder",
+                    encoder.model = "AE", 
+                    encoder.input = "KF", 
                     reduction.name = "Ibex.L.KF")
 
 seurat.merge  <- runIbex(seurat.merge, 
                     chains = "Heavy",
-                    AA.properties = "AF", 
+                    method = "encoder",
+                    encoder.model = "AE", 
+                    encoder.input = "AF", 
                     reduction.name = "Ibex.H.AF")
 
 seurat.merge  <- runIbex(seurat.merge, 
                     chains = "Light",
-                    AA.properties = "AF", 
+                    method = "encoder",
+                    encoder.model = "AE", 
+                    encoder.input = "AF",  
                     reduction.name = "Ibex.L.AF")
 
 seurat.merge  <- runIbex(seurat.merge, 
                     chains = "Heavy",
-                    AA.properties = "OHE", 
+                    method = "encoder",
+                    encoder.model = "AE", 
+                    encoder.input = "OHE", 
                     reduction.name = "Ibex.H.OHE")
 
 seurat.merge  <- runIbex(seurat.merge, 
-                    chains = "Light",
-                    AA.properties = "OHE", 
+                    chains = "Heavy",
+                    method = "encoder",
+                    encoder.model = "AE", 
+                    encoder.input = "OHE", 
                     reduction.name = "Ibex.L.OHE")
 
 
@@ -459,12 +389,16 @@ conga <- NormalizeData(conga, normalization.method = 'CLR', margin = 2) %>%
 ################
 conga <- runIbex(conga, 
                     chains = "Heavy",
-                    AA.properties = "KF", 
+                    method = "encoder",
+                    encoder.model = "AE", 
+                    encoder.input = "KF",  
                     reduction.name = "Ibex.H.KF")
 
 conga <- runIbex(conga, 
                     chains = "Light",
-                    AA.properties = "KF", 
+                    method = "encoder",
+                    encoder.model = "AE", 
+                    encoder.input = "KF", 
                     reduction.name = "Ibex.L.KF")
 
 ###################
@@ -567,188 +501,7 @@ plot.combined +
   NoLegend()
 ggsave("./output/clonotype_combined_umap.pdf", height = 3.5, width = 3.5)
 
-CD45.plot <- FeaturePlot(conga, 
-                 reduction = "trimodal.umap", 
-                 features = c("CD45RA", "CD45RO"), 
-                 cols = viridis_pal()(50), 
-                 combine = FALSE) 
-
-for(i in seq_along(CD45.plot)) {
-  CD45.plot[[i]] <- CD45.plot[[i]] + 
-              guides(color = "none") + 
-              theme_void() + 
-              theme(plot.title = element_blank(), 
-                    plot.margin = unit(c(0.6, 0.15, 0.6, 0.15), "cm"))
-}
-plot_a_list(CD45.plot,2,1)
-ggsave("./output/combined_CD45plots.png", height = 10, width = 5, dpi = 600)
-
 saveRDS(conga, file = "./data/Ibex_ClonotypeRep.rds")
-```
-
-# Comparing outputs to the Benisse pipeline
-
-The combination of gene expression and cdr3 sequence encoding for B cell receptors is a relatively new concept, but there exist an alternative pipeline for heavy chain + expression embedding, called [Benisse](https://github.com/wooyongc/Benisse) with the accompanying [manuscript](https://www.nature.com/articles/s42256-022-00492-6). In order to benchmark our approach, below is the code for the integration and visualization of both outputs for Patient 1 and Patient 2. The Benisse pipeline outputs are available in the *./data/Benisse*.
-
-## Loading and combining data 
-
-```{r}
-load("./data/Benisse/PT1.1/Benisse_results.RData")
-Ben.P1 <- results
-
-load("./data/Benisse/PT2.1/Benisse_results.RData")
-Ben.P2 <- results
-
-conga$Heavy <- str_split(conga$CTaa, "_", simplify = TRUE)[,1]
-conga.P1 <- subset(conga, donor == "P1.1")
-conga.P2 <- subset(conga, donor == "P2.1")
-```
-
-## Integrating the two pipelines
-```{r}
-conga.list <- list(conga.P1, conga.P2)
-ben.list <- list(Ben.P1, Ben.P2)
-
-for (i in 1:2) {
-  distMatrix <- ben.list[[i]]$master_dist_e
-  
-  # matrix of neighbours from Benisse
-  k=20
-  n = nrow(distMatrix)
-  nn = matrix(0,n,k) # n x k
-  for (x in 1:n) {
-     nn[x,] = k.nearest.neighbors(x, distMatrix, k = k)
-  }
-  rownames(nn) <- ben.list[[i]]$meta_dedup$cdr3
-  
-  conga.tmp <- subset(conga.list[[i]], cells = rownames(conga.list[[i]]@meta.data)[conga.list[[i]]$Heavy %in% rownames(nn)])
-  
-  meta <- conga.tmp[[]]
-  ben.meta <-  ben.list[[i]]$meta_dedup
-  meta <- merge(meta, ben.meta, by.x = "Heavy", by.y = "cdr3")
-  clones <- meta$CTaa
-  if(any(duplicated(clones))) {
-    meta <- meta[-which(duplicated(clones)),]
-    clones <- clones[-which(duplicated(clones))]
-  }
-  rownames(meta) <- clones
-  conga.tmp <- AddMetaData(conga.tmp, meta)
-
-
-  #Generating a GEX + BCR comparison
-  output <- rescaleByNeighbors(
-                    list(conga.tmp[["Ibex.H.KF"]]@cell.embeddings, 
-                        conga.tmp[["pca"]]@cell.embeddings),
-                        k = 50)
-  
-  conga.tmp[["Bimodal.Embed"]] <- CreateDimReducObject(
-                                  embeddings = as.matrix(output),
-                                  stdev = rep(0, ncol(output)),
-                                  key = "Combined",
-                                  jackstraw = NULL,
-                                  misc = list())
-  
-  conga.tmp <- FindNeighbors(conga.tmp, 
-                         reduction = "Bimodal.Embed", 
-                         dims = 1:80, 
-                         graph.name = c("Ibex_nn", "Ibex_snn"))
-  conga.tmp <- FindClusters(conga.tmp,
-                        graph.name = "Ibex_nn",
-                        algorithm = 4)
-  conga.tmp <- RunUMAP(conga.tmp, assay = "RNA", dims = 1:30)
-  
-  df <- conga.tmp[[]]
-  
-  bar.plot <- ggplot(df, aes(x=seurat_clusters, fill = as.factor(cluster))) + 
-                geom_bar(position = "fill", color = "black") + 
-                scale_fill_viridis(discrete = TRUE, na.value = "grey", option = "H") + 
-                guides(fill = "none") + 
-                coord_flip() + 
-                ylab("Proportion") + 
-                xlab("Ibex RNA + BCR Clusters") + 
-                theme_bw()
-  
-  
-    breakdown <- bluster::pairwiseRand(ref=df$seurat_clusters, alt=df$Ibex_snn_res.0.8, mode="ratio")
-    breakdown <- reshape2::melt(breakdown)
-    
-    ARI <- ggplot(breakdown, aes(x= as.factor(Var1), y = as.factor(Var2), fill = value)) + 
-      geom_tile(color = "black") + 
-      theme_classic() + 
-      labs(fill="ARI") + 
-      scale_fill_viridis(na.value = "white")+
-      theme(axis.title = element_blank(), 
-            axis.ticks = element_blank(),)
-  
-  
-  Ben.cluster <- DimPlot(conga.tmp, group.by = "cluster", reduction = "umap") +
-                    scale_color_viridis(option = "H", discrete = TRUE, na.value = "grey") + 
-                    theme_void()+
-                    NoLegend() + 
-                    theme(plot.title = element_blank())
-
-  Ibex.cluster <- DimPlot(conga.tmp, group.by = "seurat_clusters", reduction = "umap") + 
-                    scale_color_viridis(option = "H", discrete = TRUE, na.value = "grey") +
-                    theme_void()+
-                    NoLegend() + 
-                    theme(plot.title = element_blank())
-
-
-
-  neighbor.output <- NULL
-  for (y in seq_len(nrow(nn))) {
-    if (rownames(nn)[y] %in% conga.tmp$Heavy) {
-      ben.nn <- rownames(nn)[nn[y,]]
-      clone.pos <- which(rownames(nn)[y] == conga.tmp$Heavy)
-      conga.pos <- which(conga.tmp@graphs$Ibex_nn[clone.pos,] > 0)
-      conga.nn <- conga.tmp$Heavy[conga.pos]
-      intersect <- length(intersect(ben.nn, conga.nn))
-      neighbor.output <- rbind(neighbor.output, c(rownames(nn)[y], intersect, length(unique(conga.nn)), length(unique(ben.nn))))
-    } else {
-      next()
-    }
-  }
-  neighbor.output <- as.data.frame(neighbor.output)
-  colnames(neighbor.output) <- c("Heavy", "Overlap", "Ibex", "Ben")
-  df <- merge(df, neighbor.output, by = "Heavy")
-  df$Jaccard <- as.numeric(df$Overlap)/(as.numeric(df$Ibex) + as.numeric(df$Ben))
-  df$Dice <- (2 * as.numeric(df$Overlap))/(as.numeric(df$Ibex) + as.numeric(df$Ben))
-
-  JI.plot <- ggplot(df, aes(x=1, y = Jaccard)) + 
-                geom_boxplot() + 
-                ylim(0, 0.5) + 
-                ylab("Jaccard Index") + 
-                coord_fixed() + 
-                coord_flip() + 
-                theme_bw() + 
-                theme(axis.title.y = element_blank(), 
-                      axis.ticks.y = element_blank(), 
-                      axis.text.y = element_blank())
-
-  DI.plot <- ggplot(df, aes(x=1, y = Dice)) + 
-                geom_boxplot() + 
-                ylim(0, 0.5) + 
-                ylab("Sørensen/Dice Index") + 
-                coord_fixed() + 
-                coord_flip() + 
-                theme_bw() + 
-                theme(axis.title.y = element_blank(), 
-                      axis.ticks.y = element_blank(), 
-                      axis.text.y = element_blank())
-
-
-  x <- bar.plot / ARI + {
-      JI.plot / DI.plot + 
-      plot_layout(ncol=1)
-    }
-
- ((Ben.cluster + Ibex.cluster  + plot_layout(ncol = 1)) | x)  + 
-    plot_layout(widths = c(2,1))
-  ggsave(paste0("./output/Patient", i, "BenisseComparison.pdf"), height = 10, width = 10)
-}
-
- 
- 
 ```
 
 # Conclusions
