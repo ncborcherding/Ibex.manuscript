@@ -31,7 +31,7 @@ BEAM <- CreateAssayObject(counts = BEAM)
 pbmc[["BEAM"]] <- BEAM
 ```
 
-Processing Single-Cell Object
+## Processing Single-Cell Object
 
 ```{r}
 pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^mt-")
@@ -46,19 +46,38 @@ all.genes <- rownames(pbmc)
 pbmc <- pbmc %>% 
           subset(subset = nFeature_RNA > 200 & nFeature_RNA < 3500 & percent.mt < 10) %>%
           NormalizeData(verbose = FALSE) %>%
-          FindVariableFeatures(verbose = FALSE) %>%
+          FindVariableFeatures(verbose = FALSE) 
+
+#Removing IG genes
+VariableFeatures(pbmc) <- VariableFeatures(pbmc)[-grep("^Ig[hlk][vdgcagm]", VariableFeatures(pbmc))]
+
+
+pbmc <- pbmc %>%
           ScaleData(features = all.genes, verbose = FALSE) %>%
-            RunPCA(features = VariableFeatures(pbmc), verbose = FALSE)
-
-# Identify the 10 most highly variable genes
-top10 <- head(VariableFeatures(pbmc), 10)
-
-# plot variable features with and without labels
-plot1 <- VariableFeaturePlot(pbmc)
-plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
-plot1 + plot2
+          RunPCA(features = VariableFeatures(pbmc), verbose = FALSE)
 
 
+ElbowPlot(pbmc)
+
+```
+
+Clustering and Dimensional Reduction
+
+```{r}
+pbmc <- pbmc %>%
+  FindNeighbors(dims = 1:10) %>%
+  FindClusters(algorithm = 4) %>%
+  RunUMAP(dims = 1:10)
+
+DimPlot(pbmc, label = TRUE) + NoLegend()
+```
+
+```{r}
+pbmc.markers <- FindAllMarkers(pbmc, only.pos = TRUE)
+pbmc.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1) %>%
+    slice_max(order_by = avg_log2FC, n = 5)
 ```
 
 ## Loading BCR Sequences
@@ -72,4 +91,15 @@ combined.BCR <- lapply(combined.BCR, function(x) {
               x$barcode <- stringr::str_split(x$barcode, "_", simplify = TRUE)[,2]
               x
 })
+
+pbmc <- combineExpression(combined.BCR, pbmc)
+
+DimPlot(pbmc, group.by = "cloneSize") + 
+  scale_color_viridis(discrete = TRUE, direction = -1)
 ```
+
+Method for Calling Ag+ Cells
+
+Running Mouse Derived Ibex Models
+
+Reduction comparing RNA, Ibex, RNA + Ibex as a function of Ag specificity
