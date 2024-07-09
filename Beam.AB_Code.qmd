@@ -18,10 +18,10 @@ library(dplyr)
 ## Loading Single-Cell Data
 
 ```{r}
-pbmc.data <- Read10X(data.dir = "./data/BEAM.AB/2k/raw_feature_bc_matrix")
+pbmc.data <- Read10X(data.dir = "./data/BEAM.AB/10k/raw_feature_bc_matrix")
 
 pbmc <- CreateSeuratObject(counts = pbmc.data[[1]], 
-                           project = "pbmc2k", 
+                           project = "pbmc10k", 
                            min.cells = 3, 
                            min.features = 200)
 
@@ -53,8 +53,11 @@ VariableFeatures(pbmc) <- VariableFeatures(pbmc)[-grep("^Ig[hlk][vdgcagm]", Vari
 
 
 pbmc <- pbmc %>%
-          ScaleData(features = all.genes, verbose = FALSE) %>%
-          RunPCA(features = VariableFeatures(pbmc), verbose = FALSE)
+          ScaleData(vars.to.regress = "percent.mt", 
+                    features = all.genes, 
+                    verbose = FALSE) %>%
+          RunPCA(features = VariableFeatures(pbmc), 
+                 verbose = FALSE)
 
 
 ElbowPlot(pbmc)
@@ -83,7 +86,7 @@ pbmc.markers %>%
 ## Loading BCR Sequences
 
 ```{r}
-contigs <- read.csv("./data/BEAM.AB/2k/2k_BEAM-Ab_Mouse_HEL_5pv2_Multiplex_vdj_b_all_contig_annotations.csv")
+contigs <- read.csv("./data/BEAM.AB/10k/10k_BEAM-Ab_Mouse_B12_HEL_spikein_5pv2_Multiplex_vdj_b_all_contig_annotations.csv")
 combined.BCR <- combineBCR(contigs,
                            samples = "S1")
 
@@ -96,6 +99,22 @@ pbmc <- combineExpression(combined.BCR, pbmc)
 
 DimPlot(pbmc, group.by = "cloneSize") + 
   scale_color_viridis(discrete = TRUE, direction = -1)
+```
+
+```{r}
+
+plot1 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nCount_BEAM")
+plot2 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1 + plot2
+
+DefaultAssay(pbmc) <- "BEAM"
+
+pbmc <- pbmc %>%
+           ScaleData()
+
+FeatureScatter(pbmc, "Anti-Hen-Egg-Lysozyme", "gp120")
+FeatureScatter(pbmc, "Anti-Hen-Egg-Lysozyme", "negative-control")
+FeatureScatter(pbmc, "gp120", "negative-control")
 ```
 
 Method for Calling Ag+ Cells
