@@ -13,104 +13,180 @@ library(patchwork)
 library(ggplot2)
 library(viridis)
 library(dplyr)
+library(scGate)
+library(SingleR)
+library(Azimuth)
+library(scDblFinder)
+library(harmony)
+
+HPCA <- HumanPrimaryCellAtlasData()
+colorblind_vector <- hcl.colors(n=7, palette = "viridis", fixup = TRUE)
 ```
 
-## Loading Single-Cell Data
+## Loading and Filtering Single-Cell Data
 
 ```{r}
-pbmc.data <- Read10X(data.dir = "./data/BEAM.AB/10k/raw_feature_bc_matrix")
+SC.Files <- list.files("./data/BEAM.AB/Dugan2021")
+lapply(SC.Files, function(x) {
+      tmp <- Read10X(data.dir = paste0("./data/BEAM.AB/Dugan2021/", x))
+      
+      
+      SeuratObj <-  CreateSeuratObject(counts = tmp[[1]], 
+                               project = x, 
+                               min.cells = 3, 
+                               min.features = 200)
+      
+      SeuratObj$nCount_RNA <- colSums(SeuratObj@assays$RNA$counts)
+      SeuratObj$nFeature_RNA <- colSums(SeuratObj@assays$RNA$counts != 0)
+      
+      #Attaching the BEAM-Ab data to single-cell object
+      BEAM <- tmp[[2]][,colnames(tmp[[2]]) %in% rownames(SeuratObj@meta.data)]
+      BEAM <- CreateAssayObject(counts = BEAM)
+      SeuratObj[["BEAM"]] <- BEAM
+      SeuratObj$nCount_BEAM <- colSums(SeuratObj@assays$BEAM$counts)
+      SeuratObj$nFeature_BEAM <- colSums(SeuratObj@assays$BEAM$counts != 0)
+      
+      #Adding Sample Acession to barcodes
+      new.names <- paste0(x, "_", colnames(SeuratObj))
+      SeuratObj <- RenameCells(SeuratObj, new.names = new.names)
+      
+      #Calculating percentage of Genes
+      SeuratObj[["percent.ribo"]] <- PercentageFeatureSet(SeuratObj, pattern = "^RPS|RPL-")
+      SeuratObj[["percent.mt"]] <- PercentageFeatureSet(SeuratObj, pattern = "^MT-")
+      
+      #Filtering the Data Set for QC Metrics
+      standev <- sd(log(SeuratObj$nFeature_RNA))*2.5 #cutting off above standard deviation of 2.5
+      mean <- mean(log(SeuratObj$nFeature_RNA))
+      cut <- round(exp(standev+mean))
+      SeuratObj <- subset(SeuratObj, subset = percent.mt < 10 & nFeature_RNA < cut)
+    
+      ###########################################
+      #Estimate Doublets for Each Sequencing Run
+      ############################################
+      sce <- as.SingleCellExperiment(SeuratObj)
+      sce <- scDblFinder(sce)
+      doublets <- data.frame(db.class = sce$scDblFinder.class, db.score = sce$scDblFinder.score)
+      rownames(doublets) <- rownames(sce@colData)
+      SeuratObj <- AddMetaData(SeuratObj, doublets)
+  
+      #######################
+      #Adding BCR information
+      #######################
+      
+      contigs <- read.csv(paste0("./data/BEAM.AB/Dugan2021/", x, "/filtered_contig_annotations.csv.gz"))
+      combined.BCR <- combineBCR(contigs,
+                               samples = x)
+      SeuratObj <- combineExpression(combined.BCR, SeuratObj)
+    
+      ###########################################
+      #Seurat Azimuth Annotation
+      ############################################
+      AziObject <- NormalizeData(SeuratObj , verbose = FALSE)
+      AziObject <- ScaleData(AziObject , verbose = FALSE)
+      AziObject <- FindVariableFeatures(AziObject , nfeatures = 2500)
+      VariableFeatures(AziObject ) <- VariableFeatures(AziObject )[-grep("^IG[HLK][VDJCGAMD]", VariableFeatures(AziObject ))]
+      AziObject <- RunPCA(AziObject , verbose = FALSE)
+      AziObject <- RunUMAP(AziObject , dims = 1:30, verbose = FALSE)
+      AziObject <- FindNeighbors(object = AziObject , 
+                           features = VariableFeatures(AziObject ), 
+                           verbose = FALSE)
+     
+      AziObject <- RunAzimuth(AziObject, 
+                              reference = "pbmcref",
+                              verbose = FALSE)
+     
+      SeuratObj <- AddMetaData(SeuratObj, AziObject[[]])
+        
+      #############################################
+      #Singler Annotation of Cell Types
+      #############################################
+        
+      com.res1 <- SingleR(sce, ref=HPCA, labels=HPCA$label.fine, assay.type.test=1)
+    
+      df <- data.frame("labels" = com.res1$labels, "pruned.labels" = com.res1$pruned.labels)
+      rownames(df) <- rownames(com.res1)
+      colnames(df) <- paste0("HPCA.", colnames(df))
+      SeuratObj <- AddMetaData(SeuratObj,  df)
+      
+      
+      ####################################
+      #Final Filter: Only B cells with BCR
+      ####################################
+      Bcells <- rownames(SeuratObj[[]])[which(SeuratObj[[]]$predicted.celltype.l1 == "B" & !is.na(SeuratObj$CTaa))]
+      SeuratObj <- subset(SeuratObj, cells = Bcells)
+      
+      SeuratObj
+}) -> SeuratList
 
-pbmc <- CreateSeuratObject(counts = pbmc.data[[1]], 
-                           project = "pbmc10k", 
-                           min.cells = 3, 
-                           min.features = 200)
 
-#Attaching the BEAM-Ab data to single-cell object
-BEAM <- pbmc.data[[2]][,colnames(pbmc.data[[2]]) %in% rownames(pbmc@meta.data)]
-BEAM <- CreateAssayObject(counts = BEAM)
-pbmc[["BEAM"]] <- BEAM
+
+```
+
+## Merging and Dimensional Reduction
+
+```{r}
+SeuratMerge <- merge(SeuratList[[1]], SeuratList[-1])
+SeuratMerge <- JoinLayers(SeuratMerge)
+DefaultAssay(SeuratMerge) <- "RNA"
+
+all.genes <- rownames(SeuratMerge@assays$RNA$counts)
+SeuratMerge  <- NormalizeData(SeuratMerge)
+SeuratMerge  <- FindVariableFeatures(SeuratMerge, nfeatures = 2500)
+VariableFeatures(SeuratMerge) <- VariableFeatures(SeuratMerge)[-grep("^IG[HLK][VDJCAGM]", VariableFeatures(SeuratMerge))]
+
+SeuratMerge  <- SeuratMerge %>%
+                  ScaleData(vars.to.regress = "percent.mt", 
+                            features = all.genes, 
+                            verbose = FALSE) %>%
+                  RunPCA(features = VariableFeatures(SeuratMerge), 
+                         verbose = FALSE)
+SeuratMerge <- RunHarmony(SeuratMerge, "orig.ident")
+
+SeuratMerge <- SeuratMerge %>%
+                  FindNeighbors(reduction = "harmony") %>%
+                  FindClusters(algorithm = 4) 
+        
+SeuratMerge <- RunUMAP(SeuratMerge, 
+                       reduction = "harmony", 
+                       dims = 1:10)
+
+plot1 <- DimPlot(SeuratMerge)
+plot2 <- DimPlot(SeuratMerge, group.by = "orig.ident")
+plot3 <- DimPlot(SeuratMerge, group.by = "cloneSize") + 
+  scale_color_viridis(discrete = TRUE)
+plot4 <-  DimPlot(SeuratMerge, group.by = "predicted.celltype.l2") + 
+  scale_color_viridis(discrete = TRUE, option = "H")
+
+saveRDS(SeuratMerge, "./data/processed/Dugan2021_BEAM.ab_Seurat.rds")
 ```
 
 ## Processing Single-Cell Object
 
 ```{r}
-pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^mt-")
-VlnPlot(pbmc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
-
-plot1 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "percent.mt")
-plot2 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
-plot1 + plot2
-
-all.genes <- rownames(pbmc)
-
-pbmc <- pbmc %>% 
-          subset(subset = nFeature_RNA > 200 & nFeature_RNA < 3500 & percent.mt < 10) %>%
-          NormalizeData(verbose = FALSE) %>%
-          FindVariableFeatures(verbose = FALSE) 
-
-#Removing IG genes
-VariableFeatures(pbmc) <- VariableFeatures(pbmc)[-grep("^Ig[hlk][vdgcagm]", VariableFeatures(pbmc))]
-
-
-pbmc <- pbmc %>%
-          ScaleData(vars.to.regress = "percent.mt", 
-                    features = all.genes, 
-                    verbose = FALSE) %>%
-          RunPCA(features = VariableFeatures(pbmc), 
-                 verbose = FALSE)
-
-
-ElbowPlot(pbmc)
-
-```
-
-Clustering and Dimensional Reduction
-
-```{r}
-pbmc <- pbmc %>%
-  FindNeighbors(dims = 1:10) %>%
-  FindClusters(algorithm = 4) %>%
-  RunUMAP(dims = 1:10)
-
-DimPlot(pbmc, label = TRUE) + NoLegend()
-```
-
-```{r}
-pbmc.markers <- FindAllMarkers(pbmc, only.pos = TRUE)
-pbmc.markers %>%
+all.markers <- FindAllMarkers(SeuratMerge, only.pos = TRUE)
+all.markers %>%
     group_by(cluster) %>%
     dplyr::filter(avg_log2FC > 1) %>%
     slice_max(order_by = avg_log2FC, n = 5)
 ```
 
-## Loading BCR Sequences
+Normalizing BEAM
+
+modified CLR, which I believe first scaled them across antigens and then normalised against a negative control
+
+Others have normalised against hashtag antibodies
 
 ```{r}
-contigs <- read.csv("./data/BEAM.AB/10k/10k_BEAM-Ab_Mouse_B12_HEL_spikein_5pv2_Multiplex_vdj_b_all_contig_annotations.csv")
-combined.BCR <- combineBCR(contigs,
-                           samples = "S1")
-
-combined.BCR <- lapply(combined.BCR, function(x) {
-              x$barcode <- stringr::str_split(x$barcode, "_", simplify = TRUE)[,2]
-              x
-})
-
-pbmc <- combineExpression(combined.BCR, pbmc)
-
-DimPlot(pbmc, group.by = "cloneSize") + 
-  scale_color_viridis(discrete = TRUE, direction = -1)
-```
-
-```{r}
+FeaturePlot(SeuratMerge, features = rownames(SeuratMerge@assays$BEAM)[6:10])
 
 plot1 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nCount_BEAM")
 plot2 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
 plot1 + plot2
 
-DefaultAssay(pbmc) <- "BEAM"
+#DefaultAssay(pbmc) <- "BEAM"
 
-pbmc <- pbmc %>%
-           ScaleData()
+#pbmc <- pbmc %>%
+#           ScaleData()
 
 FeatureScatter(pbmc, "Anti-Hen-Egg-Lysozyme", "gp120")
 FeatureScatter(pbmc, "Anti-Hen-Egg-Lysozyme", "negative-control")
