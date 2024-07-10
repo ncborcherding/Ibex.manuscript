@@ -26,9 +26,9 @@ colorblind_vector <- hcl.colors(n=7, palette = "viridis", fixup = TRUE)
 ## Loading and Filtering Single-Cell Data
 
 ```{r}
-SC.Files <- list.files("./data/BEAM.AB/Dugan2021")
+SC.Files <- list.files("./data/BEAM.AB/Dugan2021/Recovered/")
 lapply(SC.Files, function(x) {
-      tmp <- Read10X(data.dir = paste0("./data/BEAM.AB/Dugan2021/", x))
+      tmp <- Read10X(data.dir = paste0("./data/BEAM.AB/Dugan2021/Recovered/", x))
       
       
       SeuratObj <-  CreateSeuratObject(counts = tmp[[1]], 
@@ -73,7 +73,7 @@ lapply(SC.Files, function(x) {
       #Adding BCR information
       #######################
       
-      contigs <- read.csv(paste0("./data/BEAM.AB/Dugan2021/", x, "/filtered_contig_annotations.csv.gz"))
+      contigs <- read.csv(paste0("./data/BEAM.AB/Dugan2021/Recovered/", x, "/filtered_contig_annotations.csv.gz"))
       combined.BCR <- combineBCR(contigs,
                                samples = x)
       SeuratObj <- combineExpression(combined.BCR, SeuratObj)
@@ -118,14 +118,16 @@ lapply(SC.Files, function(x) {
       SeuratObj
 }) -> SeuratList
 
-
-
+SeuratMerge <- merge(SeuratList[[1]], SeuratList[-1])
+rm(SeuratList)
+gc()
+saveRDS(SeuratMerge, "./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
 ```
 
 ## Merging and Dimensional Reduction
 
 ```{r}
-SeuratMerge <- merge(SeuratList[[1]], SeuratList[-1])
+
 SeuratMerge <- JoinLayers(SeuratMerge)
 DefaultAssay(SeuratMerge) <- "RNA"
 
@@ -157,7 +159,7 @@ plot3 <- DimPlot(SeuratMerge, group.by = "cloneSize") +
 plot4 <-  DimPlot(SeuratMerge, group.by = "predicted.celltype.l2") + 
   scale_color_viridis(discrete = TRUE, option = "H")
 
-saveRDS(SeuratMerge, "./data/processed/Dugan2021_BEAM.ab_Seurat.rds")
+saveRDS(SeuratMerge, "./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
 ```
 
 ## Processing Single-Cell Object
@@ -174,10 +176,21 @@ Normalizing BEAM
 
 modified CLR, which I believe first scaled them across antigens and then normalised against a negative control
 
+From the methods: whereas cell surface protein and antigen probe were normalized by a centered log-ratio (CLR) normalization
+
+mapping only the cells that bound a single probe revealed that
+antigen-specific cells were enriched in distinct transcriptional
+clusters
+
 Others have normalised against hashtag antibodies
 
 ```{r}
-FeaturePlot(SeuratMerge, features = rownames(SeuratMerge@assays$BEAM)[6:10])
+DefaultAssay(SeuratMerge) <- "BEAM"
+
+SeuratMerge  <- NormalizeData(SeuratMerge, nomalization.method = "CLR")
+
+
+FeaturePlot(SeuratMerge, features = "Hashtag1-R1")
 
 plot1 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nCount_BEAM")
 plot2 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
