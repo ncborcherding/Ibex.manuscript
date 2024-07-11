@@ -157,6 +157,8 @@ saveRDS(SeuratMerge, "./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
 ```
 
 ```{r}
+SeuratMerge <- readRDS("./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
+
 Cluster.Pal <- colorRampPalette(brewer.pal(11, "Paired"))(length(unique(SeuratMerge$seurat_clusters)))
 
 
@@ -174,6 +176,8 @@ DimPlot(SeuratMerge, group.by = "predicted.celltype.l2") +
   theme_void()
 ```
 
+\[1\] "Probe51-Spike" "Probe52-RBD" "Probe53-OFR7" "Probe54-ORF8" \[5\] "Probe55-NP" "CD62L" "CD27.1" "CD73" \[9\] "HLA-DR" "CD80.1" "Probe52-WilsonSpikeRBD" "Probe53-ORF7"
+
 ## Processing Single-Cell Object
 
 ```{r}
@@ -190,32 +194,18 @@ modified CLR, which I believe first scaled them across antigens and then normali
 
 From the methods: whereas cell surface protein and antigen probe were normalized by a centered log-ratio (CLR) normalization
 
-mapping only the cells that bound a single probe revealed that
-antigen-specific cells were enriched in distinct transcriptional
-clusters
+mapping only the cells that bound a single probe revealed that antigen-specific cells were enriched in distinct transcriptional clusters
 
 Others have normalised against hashtag antibodies
 
 ```{r}
 DefaultAssay(SeuratMerge) <- "BEAM"
 
-SeuratMerge  <- NormalizeData(SeuratMerge, nomalization.method = "CLR")
+SeuratMerge  <- NormalizeData(SeuratMerge, 
+                              nomalization.method = "CLR",
+                              margin = 2)
 
-
-FeaturePlot(SeuratMerge, features = "Hashtag1-R1")
-
-plot1 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nCount_BEAM")
-plot2 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
-plot1 + plot2
-
-#DefaultAssay(pbmc) <- "BEAM"
-
-#pbmc <- pbmc %>%
-#           ScaleData()
-
-FeatureScatter(pbmc, "Anti-Hen-Egg-Lysozyme", "gp120")
-FeatureScatter(pbmc, "Anti-Hen-Egg-Lysozyme", "negative-control")
-FeatureScatter(pbmc, "gp120", "negative-control")
+FeaturePlot(SeuratMerge, rownames(SeuratMerge@assays$BEAM$counts)[c(2,11)])
 ```
 
 Method for Calling Ag+ Cells
@@ -223,3 +213,54 @@ Method for Calling Ag+ Cells
 Running Mouse Derived Ibex Models
 
 Reduction comparing RNA, Ibex, RNA + Ibex as a function of Ag specificity
+
+## Processing Benisse
+
+Here we need to preprocess the 10x outputs to match the [Benisse workflow](https://github.com/wooyongc/Benisse). Need to create 2 csv files: 1) an expression matrix and 2) a contig file with the contig ID and cdr3 AA sequence for IGH loci.
+
+```{r}
+library(Seurat)
+library(dplyr)
+
+#####################
+#Processing RNA Data
+#####################
+
+SC.Files <- list.files("./data/BEAM.AB/Dugan2021/Recovered/")
+for(i in seq_along(SC.Files)) {
+    tmp <- Read10X(data.dir = paste0("./data/BEAM.AB/Dugan2021/Recovered/", SC.Files[i]))
+    tmp <- as.data.frame(tmp[[1]])
+    write.csv(tmp, paste0("./data/Benisse/inputs/", SC.Files[i], "_exp.csv"))
+}
+
+
+#######################
+#Processing Contig Data
+#######################
+
+for(i in seq_along(SC.Files)) {
+  tmp <- read.csv(paste0("./data/BEAM.AB/Dugan2021/Recovered/", SC.Files[i], "/filtered_contig_annotations.csv.gz"))
+  tmp <- tmp[tmp$productive == "True" & tmp$chain == "IGH",]
+  tmp <- tmp %>%
+          group_by(barcode) %>%
+          slice_max(order_by = reads, n=1) %>%
+          as.data.frame()
+  
+  tmp <- tmp %>%
+          group_by(barcode) %>%
+          slice_max(order_by = umis, n=1) %>%
+          as.data.frame()
+          
+  tmp <- data.frame(row.names = tmp$barcode,
+                    contigs = tmp$contig_id, 
+                    cdr3 = tmp$cdr3)
+  
+  write.csv(tmp, paste0("./data/Benisse/inputs/", SC.Files[i], "_contigs.csv"))
+}
+
+
+```
+
+#Format \_exp.csv rows: genes, columns = names
+
+#Format \_ba
