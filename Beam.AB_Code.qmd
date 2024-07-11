@@ -203,9 +203,18 @@ DefaultAssay(SeuratMerge) <- "BEAM"
 
 SeuratMerge  <- NormalizeData(SeuratMerge, 
                               nomalization.method = "CLR",
-                              margin = 2)
+                              margin = 1)
+SeuratMerge  <- ScaleData(SeuratMerge,
+                          use.umi = TRUE)
 
-FeaturePlot(SeuratMerge, rownames(SeuratMerge@assays$BEAM$counts)[c(2,11)])
+BEAM <- SeuratMerge@assays$BEAM$data[1:5,]
+
+sapply(BEAM, functionx(x) {
+  BEAM[,x]
+})
+                          
+
+FeaturePlot(SeuratMerge, rownames(SeuratMerge@assays$BEAM$counts)[c(1:4)])
 ```
 
 Method for Calling Ag+ Cells
@@ -255,12 +264,10 @@ for(i in seq_along(SC.Files)) {
                     contigs = tmp$contig_id, 
                     cdr3 = tmp$cdr3)
   
-  write.csv(tmp, paste0("./data/Benisse/inputs/", SC.Files[i], "_contigs.csv"))
+  rownames(tmp) <- stringr::str_replace_all(rownames(tmp), "-", ".")
+  
+  write.csv(tmp, paste0("./data/Benisse/inputs/", SC.Files[i], ".csv"))
 }
 
 
 ```
-
-#Format \_exp.csv rows: genes, columns = names
-
-#Format \_ba
