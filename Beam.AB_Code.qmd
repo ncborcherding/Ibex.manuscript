@@ -114,6 +114,10 @@ lapply(SC.Files, function(x) {
       Bcells <- rownames(SeuratObj[[]])[which(SeuratObj[[]]$predicted.celltype.l1 == "B" & !is.na(SeuratObj$CTaa))]
       SeuratObj <- subset(SeuratObj, cells = Bcells)
       
+      #Filtering out any cell without both IGH/L chain
+      Bcells <- rownames(SeuratObj[[]])[!grepl("NA_|_NA", SeuratObj$CTaa)]
+      SeuratObj <- subset(SeuratObj, cells = Bcells)
+      
       SeuratObj
 }) -> SeuratList
 
@@ -162,9 +166,13 @@ SeuratMerge <- readRDS("./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds"
 Cluster.Pal <- colorRampPalette(brewer.pal(11, "Paired"))(length(unique(SeuratMerge$seurat_clusters)))
 
 
-DimPlot(SeuratMerge) +
+plot3.A <- DimPlot(SeuratMerge, label = TRUE, repel = TRUE, label.size = 6) +
   scale_color_manual(values = Cluster.Pal) + 
-  theme_void()
+  theme_void() + 
+  NoLegend() 
+
+ggsave("./outputs/Figure3/Figure3A.png", plot3.A, height = 4.5, width = 5, dpi = 300)
+
 DimPlot(SeuratMerge, group.by = "orig.ident") + 
   scale_color_viridis(discrete = TRUE) + 
   theme_void()
@@ -172,6 +180,9 @@ DimPlot(SeuratMerge, group.by = "cloneSize") +
   scale_color_viridis(discrete = TRUE, direction = -1) + 
   theme_void()
 DimPlot(SeuratMerge, group.by = "predicted.celltype.l2") + 
+  scale_color_viridis(discrete = TRUE, option = "H") + 
+  theme_void()
+DimPlot(SeuratMerge, group.by = "predicted.celltype.l3") + 
   scale_color_viridis(discrete = TRUE, option = "H") + 
   theme_void()
 ```
@@ -186,6 +197,7 @@ all.markers %>%
     group_by(cluster) %>%
     dplyr::filter(avg_log2FC > 1) %>%
     slice_max(order_by = avg_log2FC, n = 5)
+save
 ```
 
 Normalizing BEAM
