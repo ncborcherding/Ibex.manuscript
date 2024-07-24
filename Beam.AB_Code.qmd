@@ -18,6 +18,7 @@ library(Azimuth)
 library(scDblFinder)
 library(harmony)
 library(RColorBrewer)
+library(Nebulosa)
 
 HPCA <- HumanPrimaryCellAtlasData()
 ```
@@ -160,6 +161,8 @@ SeuratMerge <- RunUMAP(SeuratMerge,
 saveRDS(SeuratMerge, "./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
 ```
 
+## Figure 3
+
 ```{r}
 SeuratMerge <- readRDS("./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
 
@@ -173,31 +176,62 @@ plot3.A <- DimPlot(SeuratMerge, label = TRUE, repel = TRUE, label.size = 6) +
 
 ggsave("./outputs/Figure3/Figure3A.png", plot3.A, height = 4.5, width = 5, dpi = 300)
 
-DimPlot(SeuratMerge, group.by = "orig.ident") + 
-  scale_color_viridis(discrete = TRUE) + 
-  theme_void()
-DimPlot(SeuratMerge, group.by = "cloneSize") + 
-  scale_color_viridis(discrete = TRUE, direction = -1) + 
-  theme_void()
-DimPlot(SeuratMerge, group.by = "predicted.celltype.l2") + 
-  scale_color_viridis(discrete = TRUE, option = "H") + 
-  theme_void()
-DimPlot(SeuratMerge, group.by = "predicted.celltype.l3") + 
-  scale_color_viridis(discrete = TRUE, option = "H") + 
-  theme_void()
-```
 
-\[1\] "Probe51-Spike" "Probe52-RBD" "Probe53-OFR7" "Probe54-ORF8" \[5\] "Probe55-NP" "CD62L" "CD27.1" "CD73" \[9\] "HLA-DR" "CD80.1" "Probe52-WilsonSpikeRBD" "Probe53-ORF7"
+DefaultAssay(SeuratMerge) <- "BEAM"
 
-## Processing Single-Cell Object
+SeuratMerge  <- NormalizeData(SeuratMerge, 
+                              nomalization.method = "CLR",
+                              margin = 1)
+SeuratMerge  <- ScaleData(SeuratMerge,
+                          use.umi = TRUE)
 
-```{r}
-all.markers <- FindAllMarkers(SeuratMerge, only.pos = TRUE)
-all.markers %>%
-    group_by(cluster) %>%
-    dplyr::filter(avg_log2FC > 1) %>%
-    slice_max(order_by = avg_log2FC, n = 5)
-save
+
+density.plots <- plot_density(SeuratMerge, 
+                              features = rownames(SeuratMerge@assays$BEAM$counts)[c(5,3,4,2,1)], 
+                              combine = FALSE, 
+                              method = "wkde") 
+
+for(i in seq_along(density.plots)) {
+  density.plots[[i]] <- density.plots[[i]] + 
+                                  labs(title = NULL) + 
+                                  guides(color = F) + 
+                                  theme_void()
+}
+
+plot3.B <- density.plots[[1]] + density.plots[[2]] + density.plots[[3]] + density.plots[[4]] + density.plots[[5]] + plot_layout(ncol = 5)
+ggsave("./outputs/Figure3/Figure3B.png", plot3.B, height = 4.5, width = 25, dpi = 300)
+
+
+epitopeMatrix <- as.matrix(SeuratMerge@assays$BEAM$counts[1:5,])
+
+lapply(seq_len(ncol(epitopeMatrix)), function(x) {
+  delta <- sort(epitopeMatrix[,x])[5] - sort(epitopeMatrix[,x])[4]
+  if(delta > sort(epitopeMatrix[,x])[4]) {
+    epi <- names(sort(epitopeMatrix[,x]))[5]
+  } else {
+    epi <- NA
+  }
+  epi
+}) -> epitope.assignments
+names(epitope.assignments) <- colnames(epitopeMatrix)
+epitope.assignments <- as.data.frame(do.call(rbind, epitope.assignments))
+colnames(epitope.assignments) <- "Epitope"
+epitope.assignments$Epitope <- str_split(epitope.assignments$Epitope, "-", simplify = TRUE)[,2]
+epitope.assignments$Epitope[epitope.assignments$Epitope == ""] <- NA
+epitope.assignments$Epitope <- factor(epitope.assignments$Epitope, levels = c("NP", "OFR7", "ORF8", "RBD", "Spike"))
+
+SeuratMerge <- AddMetaData(SeuratMerge, epitope.assignments)
+
+plot3.C <- DimPlot(SeuratMerge, split.by = "Epitope", pt.size = 1.5) +
+  scale_color_manual(values = Cluster.Pal) + 
+  ggtitle(NULL) + 
+  guides(color = F) + 
+ theme(strip.background = element_blank(),
+   strip.text.x = element_blank()) + 
+  theme_void()
+
+ggsave("./outputs/Figure3/Figure3C.png", plot3.C, height = 4.6, width = 25, dpi = 300)
+
 ```
 
 Normalizing BEAM
@@ -209,25 +243,6 @@ From the methods: whereas cell surface protein and antigen probe were normalized
 mapping only the cells that bound a single probe revealed that antigen-specific cells were enriched in distinct transcriptional clusters
 
 Others have normalised against hashtag antibodies
-
-```{r}
-DefaultAssay(SeuratMerge) <- "BEAM"
-
-SeuratMerge  <- NormalizeData(SeuratMerge, 
-                              nomalization.method = "CLR",
-                              margin = 1)
-SeuratMerge  <- ScaleData(SeuratMerge,
-                          use.umi = TRUE)
-
-BEAM <- SeuratMerge@assays$BEAM$data[1:5,]
-
-sapply(BEAM, functionx(x) {
-  BEAM[,x]
-})
-                          
-
-FeaturePlot(SeuratMerge, rownames(SeuratMerge@assays$BEAM$counts)[c(1:4)])
-```
 
 Method for Calling Ag+ Cells
 
