@@ -164,6 +164,10 @@ saveRDS(SeuratMerge, "./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
 ## Figure 3
 
 ```{r}
+#################
+#Visualizing UMAP
+#################
+
 SeuratMerge <- readRDS("./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
 
 Cluster.Pal <- colorRampPalette(brewer.pal(11, "Paired"))(length(unique(SeuratMerge$seurat_clusters)))
@@ -176,6 +180,9 @@ plot3.A <- DimPlot(SeuratMerge, label = TRUE, repel = TRUE, label.size = 6) +
 
 ggsave("./outputs/Figure3/Figure3A.png", plot3.A, height = 4.5, width = 5, dpi = 300)
 
+########################
+#Visualizing BEAM Signal
+########################
 
 DefaultAssay(SeuratMerge) <- "BEAM"
 
@@ -198,15 +205,26 @@ for(i in seq_along(density.plots)) {
                                   theme_void()
 }
 
+
 plot3.B <- density.plots[[1]] + density.plots[[2]] + density.plots[[3]] + density.plots[[4]] + density.plots[[5]] + plot_layout(ncol = 5)
 ggsave("./outputs/Figure3/Figure3B.png", plot3.B, height = 4.5, width = 25, dpi = 300)
 
+###############################
+#Assigning Epitope Specificity
+##############################
 
-epitopeMatrix <- as.matrix(SeuratMerge@assays$BEAM$counts[1:5,])
+#From [Dugan et Al 2021 Mehods: https://pubmed.ncbi.nlm.nih.gov/34022127/
+#normalized antigen-probe binding signals, we arbitrarily set a threshold equal to 1 for all normalized probe signals to distinguish probe binding cells as “positive” or “negative.” 
+
+#Only cells whose top hit probe value was at least two-fold greater than their second hit probe value were clustered into the top hit probe-specific group; others were clustered into the “multi-reactive” group that indicates non-specific cells. 
+
+#For samples in which we included separate SARS2 spike and RBD oligo tags, we placed cells positive to both SARS2 spike and SARS2 RBD into the “spike” group.
+
+epitopeMatrix <- as.matrix(SeuratMerge@assays$BEAM$scale.data[1:5,])
 
 lapply(seq_len(ncol(epitopeMatrix)), function(x) {
-  delta <- sort(epitopeMatrix[,x])[5] - sort(epitopeMatrix[,x])[4]
-  if(delta > sort(epitopeMatrix[,x])[4]) {
+  
+  if(sort(epitopeMatrix[,x])[5] > 2*sort(epitopeMatrix[,x])[4] & sort(epitopeMatrix[,x])[5] > 0.8) {
     epi <- names(sort(epitopeMatrix[,x]))[5]
   } else {
     epi <- NA
@@ -216,11 +234,13 @@ lapply(seq_len(ncol(epitopeMatrix)), function(x) {
 names(epitope.assignments) <- colnames(epitopeMatrix)
 epitope.assignments <- as.data.frame(do.call(rbind, epitope.assignments))
 colnames(epitope.assignments) <- "Epitope"
-epitope.assignments$Epitope <- str_split(epitope.assignments$Epitope, "-", simplify = TRUE)[,2]
+epitope.assignments$Epitope <- stringr::str_split(epitope.assignments$Epitope, "-", simplify = TRUE)[,2]
 epitope.assignments$Epitope[epitope.assignments$Epitope == ""] <- NA
 epitope.assignments$Epitope <- factor(epitope.assignments$Epitope, levels = c("NP", "OFR7", "ORF8", "RBD", "Spike"))
 
 SeuratMerge <- AddMetaData(SeuratMerge, epitope.assignments)
+
+
 
 plot3.C <- DimPlot(SeuratMerge, split.by = "Epitope", pt.size = 1.5) +
   scale_color_manual(values = Cluster.Pal) + 
@@ -233,22 +253,6 @@ plot3.C <- DimPlot(SeuratMerge, split.by = "Epitope", pt.size = 1.5) +
 ggsave("./outputs/Figure3/Figure3C.png", plot3.C, height = 4.6, width = 25, dpi = 300)
 
 ```
-
-Normalizing BEAM
-
-modified CLR, which I believe first scaled them across antigens and then normalised against a negative control
-
-From the methods: whereas cell surface protein and antigen probe were normalized by a centered log-ratio (CLR) normalization
-
-mapping only the cells that bound a single probe revealed that antigen-specific cells were enriched in distinct transcriptional clusters
-
-Others have normalised against hashtag antibodies
-
-Method for Calling Ag+ Cells
-
-Running Mouse Derived Ibex Models
-
-Reduction comparing RNA, Ibex, RNA + Ibex as a function of Ag specificity
 
 ## Processing Benisse
 
