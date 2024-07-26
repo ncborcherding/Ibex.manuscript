@@ -22,6 +22,8 @@ library(harmony)
 library(RColorBrewer)
 library(Nebulosa)
 library(mumosa)
+library(Ibex)
+library(stringr)
 
 HPCA <- HumanPrimaryCellAtlasData()
 ```
@@ -222,16 +224,15 @@ plot3.B <- density.plots[[1]] + density.plots[[2]] + density.plots[[3]] + densit
 ggsave("./outputs/Figure3/Figure3B.png", plot3.B, height = 4.5, width = 25, dpi = 300)
 ```
 
-
 ## Figure 3C
-From [Dugan et Al 2021 Mehods: https://pubmed.ncbi.nlm.nih.gov/34022127/
 
-* normalized antigen-probe binding signals, we arbitrarily set a threshold equal to 1 for all normalized probe signals to distinguish probe binding cells as “positive” or “negative.” 
+From [Dugan et al 2021 Methods](https://pubmed.ncbi.nlm.nih.gov/34022127/)
 
-* Only cells whose top hit probe value was at least two-fold greater than their second hit probe value were clustered into the top hit probe-specific group; others were clustered into the “multi-reactive” group that indicates non-specific cells. 
+-   normalized antigen-probe binding signals, we arbitrarily set a threshold equal to 1 for all normalized probe signals to distinguish probe binding cells as "positive" or "negative."
 
-* For samples in which we included separate SARS2 spike and RBD oligo tags, we placed cells positive to both SARS2 spike and SARS2 RBD into the “spike” group.
+-   Only cells whose top hit probe value was at least two-fold greater than their second hit probe value were clustered into the top hit probe-specific group; others were clustered into the "multi-reactive" group that indicates non-specific cells.
 
+-   For samples in which we included separate SARS2 spike and RBD oligo tags, we placed cells positive to both SARS2 spike and SARS2 RBD into the "spike" group.
 
 ```{r}
 ###############################
@@ -273,7 +274,7 @@ ggsave("./outputs/Figure3/Figure3C.png", plot3.C, height = 4.6, width = 25, dpi 
 
 ## Figure 3D
 
-``` {r}
+```{r}
 SeuratMerge$Spike.Specific <- "No"
 SeuratMerge$Spike.Specific[SeuratMerge$Epitope %in% c("Spike", "RBD")] <- "Spike"
 SeuratMerge$Heavy.V <- str_split(SeuratMerge$CTgene, "[.]", simplify = TRUE)[,1]
@@ -363,7 +364,6 @@ for (j in seq_along(reductions)) {
 }
 ```
 
-
 ## Figure 3E
 
 ```{r}
@@ -424,10 +424,10 @@ plot1 + plot2
 ggsave(paste0("./outputs/Figure3/Figure3E.png"), height = 5, width = 10, dpi = 600)
 ```
 
-## Saving File
+## Saving Final File
 
 ```{r}
-saveRDS(SeuratMerge, "~/data/SeuratMerge.rds")
+saveRDS(SeuratMerge, "./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
 ```
 
 ## Conclusions
@@ -435,5 +435,3 @@ saveRDS(SeuratMerge, "~/data/SeuratMerge.rds")
 ```{r}
 sessionInfo()
 ```
-
-

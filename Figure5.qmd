@@ -1,0 +1,23 @@
+---
+title: "Figure 5"
+author: "Nick Borcherding"
+format: html
+editor: visual
+date: "7/23/24"
+---
+
+Loading Data
+
+```{r}
+SeuratMerge <- readRDS("./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
+```
+
+Make List of shared Benisse and Ibex encoding
+
+Assign Spike vs not
+
+Sample 80:20 split data
+
+Traing model run
+
+Tuning model
