@@ -1,0 +1,112 @@
+---
+title: "Figure 4"
+author: "Nick Borcherding"
+format: html
+editor: visual
+date: "7/23/24"
+---
+
+## Processing Benisse
+
+Here we need to preprocess the 10x outputs to match the [Benisse workflow](https://github.com/wooyongc/Benisse). Need to create 2 csv files: 1) an expression matrix and 2) a contig file with the contig ID and cdr3 AA sequence for IGH loci.
+
+```{r}
+library(Seurat)
+library(dplyr)
+
+#####################
+#Processing RNA Data
+#####################
+
+SC.Files <- list.files("./data/BEAM.AB/Dugan2021/Recovered/")
+for(i in seq_along(SC.Files)) {
+    tmp <- Read10X(data.dir = paste0("./data/BEAM.AB/Dugan2021/Recovered/", SC.Files[i]))
+    tmp <- as.data.frame(tmp[[1]])
+    write.csv(tmp, paste0("./data/Benisse/inputs/", SC.Files[i], "_exp.csv"))
+}
+
+
+#######################
+#Processing Contig Data
+#######################
+
+for(i in seq_along(SC.Files)) {
+  tmp <- read.csv(paste0("./data/BEAM.AB/Dugan2021/Recovered/", SC.Files[i], "/filtered_contig_annotations.csv.gz"))
+  tmp <- tmp[tmp$productive == "True" & tmp$chain == "IGH",]
+  tmp <- tmp %>%
+          group_by(barcode) %>%
+          slice_max(order_by = reads, n=1) %>%
+          as.data.frame()
+  
+  tmp <- tmp %>%
+          group_by(barcode) %>%
+          slice_max(order_by = umis, n=1) %>%
+          as.data.frame()
+          
+  tmp <- data.frame(row.names = tmp$barcode,
+                    contigs = tmp$contig_id, 
+                    cdr3 = tmp$cdr3)
+  
+  rownames(tmp) <- stringr::str_replace_all(rownames(tmp), "-", ".")
+  
+  write.csv(tmp, paste0("./data/Benisse/inputs/", SC.Files[i], ".csv"))
+}
+
+
+```
+
+### Step 1: BCR Encoding
+
+```{python eval = FALSE}
+# Define the range of samples
+start_sample = 5231092
+end_sample = 5231101
+
+# Define the base command and file paths
+base_command = "python3 AchillesEncoder.py"
+input_base_path = "/Users/nick/Documents/GitHub/Ibex.manuscript/data/Benisse/inputs/"
+output_base_path = "/Users/nick/Documents/GitHub/Ibex.manuscript/data/Benisse/encoded/"
+cuda_flag = "--cuda False"
+
+# Loop through the sample numbers and generate the command line scripts
+for sample_number in range(start_sample, end_sample + 1):
+    sample_label = f"GSM{sample_number}"
+    input_file = f"{input_base_path}{sample_label}.csv"
+    output_file = f"{output_base_path}{sample_label}_encoded.csv"
+    command = f"{base_command} --input_data {input_file} --output_data {output_file} {cuda_flag}"
+    print(command)
+```
+
+### Step 2: Running Core Benisse Model
+
+```{python eval = FALSE}
+# Define the range of samples
+start_sample = 5231092
+end_sample = 5231101
+
+# Define the base command and file paths
+base_command = "Rscript Benisse.R"
+input_base_path = "/Users/nick/Documents/GitHub/Ibex.manuscript/data/Benisse/inputs/"
+encoded_base_path = "/Users/nick/Documents/GitHub/Ibex.manuscript/data/Benisse/encoded/"
+output_base_path = "/Users/nick/Documents/GitHub/Ibex.manuscript/data/Benisse/outputs/"
+
+# Additional fixed parameters
+additional_params = "1610 1 100 1 1 10 1e-10"
+
+# Loop through the sample numbers and generate the command line scripts
+for sample_number in range(start_sample, end_sample + 1):
+    sample_label = f"GSM{sample_number}"
+    exp_file = f"{input_base_path}{sample_label}_exp.csv"
+    contigs_file = f"{input_base_path}{sample_label}_contigs.csv"
+    encoded_file = f"{encoded_base_path}{sample_label}_encoded.csv"
+    output_dir = f"{output_base_path}{sample_label}"
+    command = f"{base_command} {exp_file} {contigs_file} {encoded_file} {output_dir} {additional_params}"
+    print(command)
+
+```
+
+# Conclusions
+
+```{r}
+sessionInfo()
+```
