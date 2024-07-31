@@ -6,7 +6,105 @@ editor: visual
 date: "7/23/24"
 ---
 
+## Loading Libraries and Functions
 
+```{r}
+library(reshape2)
+library(viridis)
+library(stringr)
+library(ggplot2)
+library(ggthemes)
+library(patchwork)
+source("./R/grab.tuner.R")
+```
+
+```{r}
+IGH.tuned.results <- list.files("~/Documents/GitHub/Ibex.training/tuning/IGH", 
+                                full.names = TRUE)
+
+
+lapply(IGH.tuned.results, function(x) {
+  individual.models <- list.files(x)
+  individual.results <- list()
+  for(i in seq_along(individual.models)) {
+    results <- grab.tuner(directory = x,
+                          project_name = individual.models[i])
+    melted.results <- reshape2::melt(results, id = c("id", "score", "optimizer", "layer.act"))
+    melted.results$model <- str_split(x, "/", simplify = TRUE)[,ncol(str_split(x, "/", simplify = TRUE))]
+    melted.results$method <- individual.models[i]
+    melted.results$arch <- str_split(melted.results$model, "[.]", simplify = TRUE)[,2]
+    melted.results$layers<- str_split(melted.results$model, "[.]", simplify = TRUE)[,1]
+    individual.results[[i]] <- melted.results
+  }
+  total.results <- do.call(rbind, individual.results)
+  total.results
+  
+}) -> IGH.tuned.results
+
+IGH.tuned.results <- do.call(rbind, IGH.tuned.results)
+IGH.tuned.results$overall.model <- paste0(IGH.tuned.results$method, "_", IGH.tuned.results$model)
+IGH.tuned.results$approach <- ifelse(IGH.tuned.results$method == "OHE", "OHE", "AAP")
+
+```
+
+Figure 1C
+
+```{r}
+
+plot1 <- ggplot(IGH.tuned.results[IGH.tuned.results$variable == "hidden_dim1",], 
+       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = model)) + 
+    geom_smooth(aes(color = model)) + 
+  facet_grid(optimizer~approach) + 
+    ylab("-log10(mean_squared_error)") + 
+    xlab("Layer 1 Size") + 
+    scale_color_viridis(discrete = TRUE) + 
+  theme_clean() + 
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          panel.background = element_rect(colour = "black", linewidth =1)) 
+
+plot2 <- ggplot(IGH.tuned.results[IGH.tuned.results$variable == "latent_dim",], 
+       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = model)) + 
+    geom_smooth(aes(color = model)) + 
+  facet_grid(optimizer~approach) + 
+    ylab("-log10(mean_squared_error)") + 
+    xlab("Latent Dimension Size") + 
+    scale_color_viridis(discrete = TRUE) + 
+  theme_clean() + 
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          panel.background = element_rect(colour = "black", linewidth =1)) 
+
+plot1 + plot2 + plot_layout(guides = "collect")
+ggsave("./outputs/Figure1/Figure1C.pdf", height = 4.5, width = 8, dpi = 300)
+
+plot3 <- ggplot(IGH.tuned.results[IGH.tuned.results$variable == "hidden_dim2",], 
+       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = model)) + 
+    geom_smooth(aes(color = model)) + 
+  facet_grid(optimizer~approach) + 
+    ylab("-log10(mean_squared_error)") + 
+    xlab("Layer 2 Size") + 
+    scale_color_viridis(discrete = TRUE) + 
+  theme_clean() + 
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          panel.background = element_rect(colour = "black", linewidth =1)) 
+
+plot4 <- ggplot(IGH.tuned.results[IGH.tuned.results$variable == "hidden_dim3",], 
+       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = model)) + 
+    geom_smooth(aes(color = model)) + 
+  facet_grid(optimizer~approach) + 
+    ylab("-log10(mean_squared_error)") + 
+    xlab("Layer 3 Size") + 
+    scale_color_viridis(discrete = TRUE) + 
+  theme_clean() + 
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          panel.background = element_rect(colour = "black", linewidth =1)) 
+
+plot3 + plot4 + plot_layout(guides = "collect")
+ggsave("./outputs/Supplemental/FigureX.pdf", height = 4.5, width = 8, dpi = 300)
+```
 
 # Conclusions
 
