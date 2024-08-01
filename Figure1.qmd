@@ -47,7 +47,7 @@ IGH.tuned.results$approach <- ifelse(IGH.tuned.results$method == "OHE", "OHE", "
 
 ```
 
-Figure 1C
+## Figure 1C
 
 ```{r}
 
@@ -106,7 +106,33 @@ plot3 + plot4 + plot_layout(guides = "collect")
 ggsave("./outputs/Supplemental/FigureX.pdf", height = 4.5, width = 8, dpi = 300)
 ```
 
-# Conclusions
+## Figure 1D
+
+```{r}
+tmp.subset <- IGH.tuned.results[IGH.tuned.results$method != "OHE" & IGH.tuned.results$variable == "hidden_dim1" & IGH.tuned.results$optimizer != "sgd",]
+median.value = median(-log10(as.numeric(tmp.subset$score)))
+
+ggplot(IGH.tuned.results[IGH.tuned.results$method != "OHE" & IGH.tuned.results$variable == "hidden_dim1" & IGH.tuned.results$optimizer != "sgd",], 
+       aes(x=method, y = -log10(as.numeric(score)))) + 
+    geom_boxplot(aes(fill = method), alpha = 0.7) + 
+  facet_grid(.~model) + 
+  geom_hline(yintercept = median.value, lwd = 1, lty = 2) + 
+  
+    ylab("-log10(mean_squared_error)") + 
+    xlab("Amino Acid Properties") + 
+  scale_x_discrete(limits = rev) + 
+  coord_flip() + 
+    scale_fill_viridis(discrete = TRUE, direction = -1) + 
+  guides(fill = "none") + 
+  
+  theme_clean() + 
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          panel.background = element_rect(colour = "black", linewidth =1)) 
+ggsave("./outputs/Figure1/Figure1D.pdf", height = 4.5, width = 8, dpi = 300)
+```
+
+## Conclusions
 
 ```{r}
 sessionInfo()
