@@ -116,7 +116,7 @@ ggplot(IGH.tuned.results[IGH.tuned.results$method != "OHE" & IGH.tuned.results$v
        aes(x=method, y = -log10(as.numeric(score)))) + 
     geom_boxplot(aes(fill = method), alpha = 0.7) + 
   facet_grid(.~model) + 
-  geom_hline(yintercept = median.value, lwd = 1, lty = 2) + 
+  geom_hline(yintercept = median.value, lwd = 1) + 
   
     ylab("-log10(mean_squared_error)") + 
     xlab("Amino Acid Properties") + 
