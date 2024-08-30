@@ -155,7 +155,7 @@ SeuratMerge <- RunHarmony(SeuratMerge, "orig.ident")
 
 SeuratMerge <- SeuratMerge %>%
                   FindNeighbors(reduction = "harmony") %>%
-                  FindClusters(algorithm = 4) 
+                  FindClusters(graph.name = "RNA_snn", algorithm = 4) 
         
 SeuratMerge <- RunUMAP(SeuratMerge, 
                        reduction = "harmony", 
@@ -177,16 +177,41 @@ Ploting UMAP and clusters
 
 SeuratMerge <- readRDS("./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
 
-Cluster.Pal <- colorRampPalette(brewer.pal(11, "Paired"))(length(unique(SeuratMerge$seurat_clusters)))
+Cluster.Pal <- colorRampPalette(brewer.pal(11, "Paired"))(length(unique(SeuratMerge$RNA_snn_res.0.8)))
 
 
-plot3.A <- DimPlot(SeuratMerge, label = TRUE, repel = TRUE, label.size = 6) +
+plot3.A <- DimPlot(SeuratMerge, label = TRUE, repel = TRUE, label.size = 6, group.by = "RNA_snn_res.0.8") +
   scale_color_manual(values = Cluster.Pal) + 
   theme_void() + 
+  theme(plot.title = element_blank()) + 
   NoLegend() 
 
 ggsave("./outputs/Figure3/Figure3A.png", plot3.A, height = 4.5, width = 5, dpi = 300)
 
+```
+
+## Supplemental Figure Y
+
+```{r}
+features <- c("CD19", "CD27", "CD79A", "IGHM", "IGHD", "MKI67", "MS4A1", "XBP1")
+DefaultAssay(SeuratMerge) <- "RNA"
+density.plots <- plot_density(SeuratMerge, 
+                              features = features, 
+                              combine = FALSE, 
+                              method = "wkde",
+                              reduction = "umap") 
+
+for(i in seq_along(density.plots)) {
+  density.plots[[i]] <- density.plots[[i]] + 
+                                  labs(title = NULL) + 
+                                  guides(color = F) + 
+                                  theme_void()
+}
+
+
+density.plots[[1]] + density.plots[[2]] + density.plots[[3]] + density.plots[[4]] + 
+          density.plots[[5]] + density.plots[[6]] + density.plots[[7]] + density.plots[[8]] + plot_layout(ncol = 4)
+ggsave("./outputs/Supplemental/FigureY.pdf", height = 9, width = 20)
 ```
 
 ## Figure 3B
@@ -208,9 +233,10 @@ SeuratMerge  <- ScaleData(SeuratMerge,
 
 
 density.plots <- plot_density(SeuratMerge, 
-                              features = rownames(SeuratMerge@assays$BEAM$counts)[c(5,3,4,2,1)], 
+                              features = rownames(SeuratMerge@assays$BEAM$counts)[c(5,4,2,1)], 
                               combine = FALSE, 
-                              method = "wkde") 
+                              method = "wkde",
+                              reduction = "umap") 
 
 for(i in seq_along(density.plots)) {
   density.plots[[i]] <- density.plots[[i]] + 
@@ -220,8 +246,8 @@ for(i in seq_along(density.plots)) {
 }
 
 
-plot3.B <- density.plots[[1]] + density.plots[[2]] + density.plots[[3]] + density.plots[[4]] + density.plots[[5]] + plot_layout(ncol = 5)
-ggsave("./outputs/Figure3/Figure3B.png", plot3.B, height = 4.5, width = 25, dpi = 300)
+plot3.B <- density.plots[[1]] + density.plots[[2]] + density.plots[[3]] + density.plots[[4]] + plot_layout(ncol = 4)
+ggsave("./outputs/Figure3/Figure3B.png", plot3.B, height = 4.5, width = 20, dpi = 300)
 ```
 
 ## Figure 3C
@@ -243,7 +269,7 @@ epitopeMatrix <- as.matrix(SeuratMerge@assays$BEAM$scale.data[1:5,])
 
 lapply(seq_len(ncol(epitopeMatrix)), function(x) {
   
-  if(sort(epitopeMatrix[,x])[5] > 2*sort(epitopeMatrix[,x])[4] & sort(epitopeMatrix[,x])[5] > 0.8) {
+  if(sort(epitopeMatrix[,x])[5] > 2*sort(epitopeMatrix[,x])[4] & sort(epitopeMatrix[,x])[5] > 1) {
     epi <- names(sort(epitopeMatrix[,x]))[5]
   } else {
     epi <- NA
@@ -255,13 +281,13 @@ epitope.assignments <- as.data.frame(do.call(rbind, epitope.assignments))
 colnames(epitope.assignments) <- "Epitope"
 epitope.assignments$Epitope <- stringr::str_split(epitope.assignments$Epitope, "-", simplify = TRUE)[,2]
 epitope.assignments$Epitope[epitope.assignments$Epitope == ""] <- NA
-epitope.assignments$Epitope <- factor(epitope.assignments$Epitope, levels = c("NP", "OFR7", "ORF8", "RBD", "Spike"))
+epitope.assignments$Epitope <- factor(epitope.assignments$Epitope, levels = c("NP", "ORF8", "RBD", "Spike"))
 
 SeuratMerge <- AddMetaData(SeuratMerge, epitope.assignments)
 
 
 
-plot3.C <- DimPlot(SeuratMerge, split.by = "Epitope", pt.size = 1.5) +
+plot3.C <- DimPlot(SeuratMerge, split.by = "Epitope", pt.size = 1.5, group.by = "RNA_snn_res.0.8") +
   scale_color_manual(values = Cluster.Pal) + 
   ggtitle(NULL) + 
   guides(color = F) + 
@@ -269,7 +295,7 @@ plot3.C <- DimPlot(SeuratMerge, split.by = "Epitope", pt.size = 1.5) +
    strip.text.x = element_blank()) + 
   theme_void()
 
-ggsave("./outputs/Figure3/Figure3C.png", plot3.C, height = 4.6, width = 25, dpi = 300)
+ggsave("./outputs/Figure3/Figure3C.png", plot3.C, height = 4.6, width = 20, dpi = 300)
 ```
 
 ## Figure 3D
@@ -286,21 +312,6 @@ SeuratMerge  <- runIbex(SeuratMerge,
                     chains = "Heavy",
                     method = "encoder",
                     encoder.model = "VAE", 
-                    encoder.input = "OHE", 
-                    reduction.name = "Ibex.H.VAE.OHE")
-
-
-SeuratMerge  <- runIbex(SeuratMerge, 
-                    chains = "Heavy",
-                    method = "encoder",
-                    encoder.model = "VAE", 
-                    encoder.input = "KF", 
-                    reduction.name = "Ibex.H.VAE.KF")
-
-SeuratMerge  <- runIbex(SeuratMerge, 
-                    chains = "Heavy",
-                    method = "encoder",
-                    encoder.model = "VAE", 
                     encoder.input = "AF", 
                     reduction.name = "Ibex.H.VAE.AF")
 
@@ -310,25 +321,11 @@ SeuratMerge  <- runIbex(SeuratMerge,
                     chains = "Light",
                     method = "encoder",
                     encoder.model = "VAE", 
-                    encoder.input = "OHE", 
-                    reduction.name = "Ibex.L.VAE.OHE")
-
-
-SeuratMerge  <- runIbex(SeuratMerge, 
-                    chains = "Light",
-                    method = "encoder",
-                    encoder.model = "VAE", 
-                    encoder.input = "KF", 
-                    reduction.name = "Ibex.L.VAE.KF")
-
-SeuratMerge  <- runIbex(SeuratMerge, 
-                    chains = "Light",
-                    method = "encoder",
-                    encoder.model = "VAE", 
                     encoder.input = "AF", 
                     reduction.name = "Ibex.L.VAE.AF")
 
-reductions <- names(SeuratMerge@reductions)[4:9]
+
+reductions <- c("Ibex.H.VAE.AF", "Ibex.L.VAE.AF")
 for (j in seq_along(reductions)) {
         if (j %in% 1:3) {
           vgene <- "Heavy.V"
@@ -368,9 +365,9 @@ for (j in seq_along(reductions)) {
 
 ```{r}
 output <- rescaleByNeighbors(
-                  list(SeuratMerge[["Ibex.H.VAE.KF"]]@cell.embeddings, 
+                  list(SeuratMerge[["Ibex.H.VAE.AF"]]@cell.embeddings, 
                        SeuratMerge[["pca"]]@cell.embeddings),
-                  k = 50)
+                  k =60)
 
 phate_output <- phateR::phate(output)
 
