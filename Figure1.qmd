@@ -1,4 +1,5 @@
 ---
+138*---
 title: "Figure 1"
 author: "Nick Borcherding"
 format: html
@@ -35,6 +36,7 @@ for(x in seq_along(tuned.results)) {
 tuned.results <- do.call(rbind, total.results)
 tuned.results$overall.model <- paste0(tuned.results$method, "_", tuned.results$model)
 tuned.results$approach <- ifelse(tuned.results$method == "OHE", "OHE", "AAP")
+tuned.results$group <- str_split(tuned.results$model, "_", simplify = TRUE)[,1]
 
 ```
 
@@ -51,12 +53,14 @@ Visualization of the effect of the hidden layers (size and number) and latent di
 #Layer 1
 #############
 plot1 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim1",], 
-       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = model)) + 
-    geom_smooth(aes(color = model), lwd = 0.5, alpha = 0.7) + 
+       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = group)) + 
+    geom_smooth(aes(color = group), lwd = 0.5, alpha = 0.7) + 
   facet_grid(optimizer~approach) + 
     ylab("-log10(mean_squared_error)") + 
     xlab("Layer 1 Size") + 
     scale_color_viridis(discrete = TRUE) + 
+  scale_x_continuous(trans='log2') + 
+  ylim(-2.5,5) + 
   theme_clean() + 
     theme(panel.grid.major = element_blank(), 
           panel.grid.minor = element_blank(),
@@ -66,13 +70,15 @@ plot1 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim1",],
 #Laten Dimensions
 #################
 plot2 <- ggplot(tuned.results[tuned.results$variable == "latent_dim",], 
-       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = model)) + 
-    geom_smooth(aes(color = model), lwd = 0.5, alpha = 0.7) + 
+       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = group)) + 
+    geom_smooth(aes(color = group), lwd = 0.5, alpha = 0.7) + 
   facet_grid(optimizer~approach) + 
     ylab("-log10(mean_squared_error)") + 
     xlab("Latent Dimension Size") + 
     scale_color_viridis(discrete = TRUE) + 
+  ylim(-2.5,5) + 
   theme_clean() + 
+   scale_x_continuous(trans='log2') + 
     theme(panel.grid.major = element_blank(), 
           panel.grid.minor = element_blank(),
           panel.background = element_rect(colour = "black", linewidth =1)) 
@@ -84,13 +90,15 @@ ggsave("./outputs/Figure1/Figure1C.pdf", height = 8, width = 10)
 #Layer 2
 #############
 plot3 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim2",], 
-       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = model)) + 
-    geom_smooth(aes(color = model), lwd = 0.5) + 
+       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = group)) + 
+    geom_smooth(aes(color = group), lwd = 0.5) + 
   facet_grid(optimizer~approach) + 
     ylab("-log10(mean_squared_error)") + 
     xlab("Layer 2 Size") + 
     scale_color_viridis(discrete = TRUE) + 
+  ylim(-2.5,5) + 
   theme_clean() + 
+  scale_x_continuous(trans='log2') + 
     theme(panel.grid.major = element_blank(), 
           panel.grid.minor = element_blank(),
           panel.background = element_rect(colour = "black", linewidth =1)) 
@@ -99,13 +107,15 @@ plot3 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim2",],
 #Layer 3
 #############
 plot4 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim3",], 
-       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = model)) + 
-    geom_smooth(aes(color = model), lwd = 0.5) + 
+       aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = group)) + 
+    geom_smooth(aes(color = group), lwd = 0.5) + 
   facet_grid(optimizer~approach) + 
     ylab("-log10(mean_squared_error)") + 
     xlab("Layer 3 Size") + 
     scale_color_viridis(discrete = TRUE) + 
+  ylim(-2.5,5) + 
   theme_clean() + 
+  scale_x_continuous(trans='log2') + 
     theme(panel.grid.major = element_blank(), 
           panel.grid.minor = element_blank(),
           panel.background = element_rect(colour = "black", linewidth =1)) 
@@ -122,13 +132,17 @@ We are not worried about what the different parameters affected the performance,
 
 ```{r}
 tmp.subset <- tuned.results[tuned.results$method != "OHE" & tuned.results$variable == "hidden_dim1" & tuned.results$optimizer != "sgd",]
-median.value = median(-log10(as.numeric(tmp.subset$score)))
+median.value = tmp.subset %>%
+                  group_by(arch) %>%
+                  summarise(median_value = median(as.numeric(score)))
+median.value$median_value <- -log10(median.value$median_value)
+                
 
-ggplot(tuned.results[tuned.results$method != "OHE" & tuned.results$variable == "hidden_dim1" & tuned.results$optimizer != "sgd",], 
+ggplot(tmp.subset, 
        aes(x=method, y = -log10(as.numeric(score)))) + 
     geom_boxplot(aes(fill = method), alpha = 0.7) + 
   facet_grid(.~arch, scales = "free_x") + 
-  geom_hline(yintercept = median.value, lwd = 1) + 
+  geom_hline(data = median.value, aes(yintercept = median_value), size = 1) + 
   
     ylab("-log10(mean_squared_error)") + 
     xlab("Amino Acid Properties") + 
