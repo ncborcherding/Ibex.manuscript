@@ -327,37 +327,42 @@ SeuratMerge  <- runIbex(SeuratMerge,
 
 reductions <- c("Ibex.H.VAE.AF", "Ibex.L.VAE.AF")
 for (j in seq_along(reductions)) {
-        if (j %in% 1:3) {
+        if (j ==1) {
           vgene <- "Heavy.V"
         } else {
           vgene <- "Light.V"
         }
   
   non.duplicated <- unique(SeuratMerge@reductions[[reductions[j]]]@cell.embeddings)
-  x <- phateR::phate(non.duplicated)
+  x <- phateR::phate(non.duplicated, knn = 10)
+  
         
-  plot.df <- data.frame(barcode = rownames(non.duplicated), x$embedding)
+  #plot.df <- data.frame(barcode = rownames(non.duplicated), x$embedding)
+  plot.df <- data.frame(barcode = rownames(non.duplicated), x)
   plot.df$patient <- stringr::str_split(plot.df$barcode, "_", simplify = TRUE)[,1]
   plot.df <- merge(plot.df, SeuratMerge[[]], by.x = 1, by.y = 0)
+  plot.df$Epitope <- as.character(plot.df$Epitope)
+  plot.df$Epitope[which(is.na(plot.df$Epitope))] <- "No"
+  plot.df$Epitope <- factor(plot.df$Epitope, levels = c("NP", "ORF8", "RBD", "Spike", "No"))
+  plot.df$Epitope[which(is.na(plot.df$Epitope))] <- "No"
         
   plot1 <- ggplot(plot.df, aes(x = PHATE1, y = PHATE2)) + 
-                    geom_point(aes(color = orig.ident)) + 
-                    scale_color_viridis(discrete = TRUE) + 
-                    xlim(min(plot.df$PHATE1)*1.25, max(plot.df$PHATE1*1.25)) + 
-                    ylim(min(plot.df$PHATE2)*1.25, max(plot.df$PHATE2)*1.25) + 
-                    guides(color = "none") + 
-                    theme_void()
-        
-  plot2 <- ggplot(plot.df, aes(x = PHATE1, y = PHATE2)) + 
                     geom_point(aes(color = plot.df[,vgene])) + 
                     scale_color_viridis(discrete = TRUE) + 
                     xlim(min(plot.df$PHATE1)*1.25, max(plot.df$PHATE1*1.25)) + 
                     ylim(min(plot.df$PHATE2)*1.25, max(plot.df$PHATE2)*1.25) + 
                     guides(color = "none") + 
                     theme_void()
+  
+  plot2 <- ggplot(plot.df %>% arrange(desc(Epitope), .by_group = TRUE), aes(x = PHATE1, y = PHATE2)) + 
+                    geom_point(aes(color = Epitope)) + 
+                    scale_color_manual(values = c(viridis_pal()(4), "grey")) + 
+                    xlim(min(plot.df$PHATE1)*1.25, max(plot.df$PHATE1*1.25)) + 
+                    ylim(min(plot.df$PHATE2)*1.25, max(plot.df$PHATE2)*1.25) + 
+                    theme_void()
 
-  plot1 + plot2 
-  ggsave(paste0("./outputs/Figure3/Figure3D_", reductions[j], ".png"), height = 5, width = 10, dpi = 600)
+  plot1 + plot2 + plot_layout(guides = "collect")
+  ggsave(paste0("./outputs/Figure3/Figure3D_", reductions[j], ".png"), height = 5, width = 10.25, dpi = 600)
 }
 ```
 
@@ -365,9 +370,9 @@ for (j in seq_along(reductions)) {
 
 ```{r}
 output <- rescaleByNeighbors(
-                  list(SeuratMerge[["Ibex.H.VAE.AF"]]@cell.embeddings, 
-                       SeuratMerge[["pca"]]@cell.embeddings),
-                  k =60)
+                  list(SeuratMerge[["Ibex.H.VAE.AF"]]@cell.embeddings,
+                       SeuratMerge[["Ibex.L.VAE.AF"]]@cell.embeddings, 
+                       SeuratMerge[["pca"]]@cell.embeddings))
 
 phate_output <- phateR::phate(output)
 
@@ -389,10 +394,10 @@ SeuratMerge[["Trimodal.Phate"]] <- CreateDimReducObject(embeddings = phate_outpu
 
 SeuratMerge <- FindNeighbors(SeuratMerge, 
                              reduction = "Trimodal.Embed", 
-                             dims = 1:80, 
+                             dims = 1:100, 
                              graph.name = c("Ibex_nn", "Ibex_snn"))
 SeuratMerge <- FindClusters(SeuratMerge,
-                            resolution = 0.5,
+                            resolution = 0.3,
                             graph.name = "Ibex_snn",
                             algorithm = 4)
 
@@ -401,24 +406,86 @@ SeuratMerge <- FindClusters(SeuratMerge,
 #######################################
 
 plot.df <- data.frame(SeuratMerge[["Trimodal.Phate"]]@cell.embeddings, SeuratMerge[[]])
+plot.df$Epitope[which(is.na(plot.df$Epitope))] <- "No"
+plot.df$Epitope <- factor(plot.df$Epitope, levels = c("NP", "ORF8", "RBD", "Spike", "No"))
+plot.df$Epitope[which(is.na(plot.df$Epitope))] <- "No"
 
-Cluster.Pal <- colorRampPalette(brewer.pal(11, "Paired"))(length(unique(SeuratMerge$Ibex_snn_res.0.5)))
+centers = plot.df %>% 
+          group_by(Ibex_snn_res.0.3) %>%
+  summarize(across(c("TPhate_1", "TPhate_2"),~ mean(.x, na.rm = TRUE))) %>%
+          as.data.frame()
+    
+
+Cluster.Pal <- colorRampPalette(brewer.pal(11, "Paired"))(length(unique(SeuratMerge$Ibex_snn_res.0.3)))
 
         
 plot1 <- ggplot(plot.df, aes(x = TPhate_1, y = TPhate_2)) + 
-                    geom_point(aes(color = Ibex_snn_res.0.5)) + 
+                    geom_point(aes(color = Ibex_snn_res.0.3)) + 
+                    geom_text(data = centers, mapping =  aes(x=centers[,2], y = centers[,3], label = Ibex_snn_res.0.3), 
+              color = "black", size = 5) + 
                     scale_color_manual(values = Cluster.Pal) + 
                     guides(color = "none") + 
                     theme_void()
 
-plot2 <- ggplot(plot.df %>% arrange(Spike.Specific), aes(x = TPhate_1, y = TPhate_2)) + 
-                    geom_point(aes(color = Spike.Specific)) + 
-                    scale_color_viridis(discrete = TRUE) + 
+plot2 <- ggplot(plot.df %>% arrange(desc(Epitope)), aes(x = TPhate_1, y = TPhate_2)) + 
+                    geom_point(aes(color = Epitope)) + 
+                    scale_color_manual(values = c(viridis_pal()(4), "grey")) +
                     guides(color = "none") + 
                     theme_void()
 
 plot1 + plot2
 ggsave(paste0("./outputs/Figure3/Figure3E.png"), height = 5, width = 10, dpi = 600)
+```
+
+Figure 3F
+
+```{r}
+plot1 <- ggplot(subset(plot.df, Epitope != "No"), aes(x = Ibex_snn_res.0.3)) + 
+  geom_bar(aes(fill = Epitope)) + 
+  scale_fill_viridis(discrete = TRUE) + 
+  theme_clean()
+
+plot2 <- ggplot(subset(plot.df, Epitope != "No"), aes(x = Ibex_snn_res.0.3)) + 
+  geom_bar(aes(fill = Epitope), position = "fill") + 
+  scale_fill_viridis(discrete = TRUE) + 
+  theme_clean()
+
+plot1 + plot2 +plot_layout(ncol = 1, guides = "collect")
+ggsave(paste0("./outputs/Figure3/Figure3F.png"), height = 5, width = 10, dpi = 600)
+
+
+plot1 <- ggplot(subset(plot.df, RNA_snn_res.0.8 %in% c(4,6,7,8,12)), aes(x = TPhate_1, y = TPhate_2)) + 
+                    geom_point(aes(color = Ibex_snn_res.0.3)) + 
+                    geom_text(data = centers, mapping =  aes(x=centers[,2], y = centers[,3], label = Ibex_snn_res.0.3), 
+              color = "black", size = 5) + 
+                    scale_color_manual(values = Cluster.Pal) + 
+                    guides(color = "none") + 
+                    theme_void()
+
+plot2 <- ggplot(subset(plot.df, RNA_snn_res.0.8 %in% c(4,6,7,8,12)) %>% arrange(desc(Epitope)), aes(x = TPhate_1, y = TPhate_2)) + 
+                    geom_point(aes(color = Epitope)) + 
+                    scale_color_manual(values = c(viridis_pal()(4), "grey")) +
+                    guides(color = "none") + 
+                    theme_void()
+
+plot1 + plot2
+ggsave(paste0("./outputs/Supplemental/FigureB_1.png"), height = 5, width = 10, dpi = 600)
+
+
+plot1 <- ggplot(subset(plot.df, Epitope != "No" & RNA_snn_res.0.8 %in% c(4,6,7,8,12) ), aes(x = Ibex_snn_res.0.3)) + 
+  geom_bar(aes(fill = Epitope)) + 
+  scale_fill_viridis(discrete = TRUE) + 
+  theme_clean()
+
+plot2 <- ggplot(subset(plot.df, Epitope != "No" & RNA_snn_res.0.8 %in% c(4,6,7,8,12) ), aes(x = Ibex_snn_res.0.3)) + 
+  geom_bar(aes(fill = Epitope), position = "fill") + 
+  scale_fill_viridis(discrete = TRUE) + 
+  theme_clean()
+
+plot1 + plot2 +plot_layout(ncol = 1, guides = "collect")
+ggsave(paste0("./outputs/Supplemental/FigureB_2.png"), height = 5, width = 10, dpi = 600)
+
+
 ```
 
 ## Saving Final File
