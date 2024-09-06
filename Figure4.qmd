@@ -144,7 +144,7 @@ lapply(barcodes, function(x) {
 }) -> Seurat.Index
 Seurat.Index <- unique(do.call(c, Seurat.Index))
 Ibex.IGH <- Ibex.IGH[Seurat.Index,]
-Seurat.Meta <- Seurat.Meta[Seurat.Index,]
+SeuratMeta <- SeuratMeta[Seurat.Index,]
 
 ClusterSweep.Ibex <- clusterSweep(Ibex.IGH, 
     NNGraphParam(), 
