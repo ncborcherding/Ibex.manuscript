@@ -9,6 +9,7 @@ date: "7/23/24"
 ## Loading Libraries
 
 ```{r}
+library(SeuratDisk)
 library(Seurat)
 library(scRepertoire)
 library(patchwork)
@@ -28,142 +29,63 @@ library(stringr)
 HPCA <- HumanPrimaryCellAtlasData()
 ```
 
-## Loading and Filtering Single-Cell Data
+## Converting Single-cell Data
 
 ```{r}
-SC.Files <- list.files("./data/BEAM.AB/Dugan2021/Recovered/")
-lapply(SC.Files, function(x) {
-      tmp <- Read10X(data.dir = paste0("./data/BEAM.AB/Dugan2021/Recovered/", x))
-      
-      
-      SeuratObj <-  CreateSeuratObject(counts = tmp[[1]], 
-                               project = x, 
-                               min.cells = 3, 
-                               min.features = 200)
-      
-      SeuratObj$nCount_RNA <- colSums(SeuratObj@assays$RNA$counts)
-      SeuratObj$nFeature_RNA <- colSums(SeuratObj@assays$RNA$counts != 0)
-      
-      #Attaching the BEAM-Ab data to single-cell object
-      BEAM <- tmp[[2]][,colnames(tmp[[2]]) %in% rownames(SeuratObj@meta.data)]
-      BEAM <- CreateAssayObject(counts = BEAM)
-      SeuratObj[["BEAM"]] <- BEAM
-      SeuratObj$nCount_BEAM <- colSums(SeuratObj@assays$BEAM$counts)
-      SeuratObj$nFeature_BEAM <- colSums(SeuratObj@assays$BEAM$counts != 0)
-      
-      #Adding Sample Acession to barcodes
-      new.names <- paste0(x, "_", colnames(SeuratObj))
-      SeuratObj <- RenameCells(SeuratObj, new.names = new.names)
-      
-      #Calculating percentage of Genes
-      SeuratObj[["percent.ribo"]] <- PercentageFeatureSet(SeuratObj, pattern = "^RPS|RPL-")
-      SeuratObj[["percent.mt"]] <- PercentageFeatureSet(SeuratObj, pattern = "^MT-")
-      
-      #Filtering the Data Set for QC Metrics
-      standev <- sd(log(SeuratObj$nFeature_RNA))*2.5 #cutting off above standard deviation of 2.5
-      mean <- mean(log(SeuratObj$nFeature_RNA))
-      cut <- round(exp(standev+mean))
-      SeuratObj <- subset(SeuratObj, subset = percent.mt < 10 & nFeature_RNA < cut)
-    
-      ###########################################
-      #Estimate Doublets for Each Sequencing Run
-      ############################################
-      sce <- as.SingleCellExperiment(SeuratObj)
-      sce <- scDblFinder(sce)
-      doublets <- data.frame(db.class = sce$scDblFinder.class, db.score = sce$scDblFinder.score)
-      rownames(doublets) <- rownames(sce@colData)
-      SeuratObj <- AddMetaData(SeuratObj, doublets)
-  
-      #######################
-      #Adding BCR information
-      #######################
-      
-      contigs <- read.csv(paste0("./data/BEAM.AB/Dugan2021/Recovered/", x, "/filtered_contig_annotations.csv.gz"))
-      combined.BCR <- combineBCR(contigs,
-                               samples = x)
-      SeuratObj <- combineExpression(combined.BCR, SeuratObj)
-    
-      ###########################################
-      #Seurat Azimuth Annotation
-      ############################################
-      AziObject <- NormalizeData(SeuratObj , verbose = FALSE)
-      AziObject <- ScaleData(AziObject , verbose = FALSE)
-      AziObject <- FindVariableFeatures(AziObject , nfeatures = 2500)
-      VariableFeatures(AziObject ) <- VariableFeatures(AziObject )[-grep("^IG[HLK][VDJCGAMD]", VariableFeatures(AziObject ))]
-      AziObject <- RunPCA(AziObject , verbose = FALSE)
-      AziObject <- RunUMAP(AziObject , dims = 1:30, verbose = FALSE)
-      AziObject <- FindNeighbors(object = AziObject , 
-                           features = VariableFeatures(AziObject ), 
-                           verbose = FALSE)
-     
-      AziObject <- RunAzimuth(AziObject, 
-                              reference = "pbmcref",
-                              verbose = FALSE)
-     
-      SeuratObj <- AddMetaData(SeuratObj, AziObject[[]])
-        
-      #############################################
-      #Singler Annotation of Cell Types
-      #############################################
-        
-      com.res1 <- SingleR(sce, ref=HPCA, labels=HPCA$label.fine, assay.type.test=1)
-    
-      df <- data.frame("labels" = com.res1$labels, "pruned.labels" = com.res1$pruned.labels)
-      rownames(df) <- rownames(com.res1)
-      colnames(df) <- paste0("HPCA.", colnames(df))
-      SeuratObj <- AddMetaData(SeuratObj,  df)
-      
-      
-      ####################################
-      #Final Filter: Only B cells with BCR
-      ####################################
-      Bcells <- rownames(SeuratObj[[]])[which(SeuratObj[[]]$predicted.celltype.l1 == "B" & !is.na(SeuratObj$CTaa))]
-      SeuratObj <- subset(SeuratObj, cells = Bcells)
-      
-      #Filtering out any cell without both IGH/L chain
-      Bcells <- rownames(SeuratObj[[]])[!grepl("NA_|_NA", SeuratObj$CTaa)]
-      SeuratObj <- subset(SeuratObj, cells = Bcells)
-      
-      SeuratObj
-}) -> SeuratList
+ad <- anndata::read_h5ad('./data/Kim2022/WU368_kim_et_al_nature_2022_gex_b_cells.h5ad')
 
-SeuratMerge <- merge(SeuratList[[1]], SeuratList[-1])
-rm(SeuratList)
-gc()
-saveRDS(SeuratMerge, "./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
-```
+#Forming New Seurat Object
+SeuratMerge <- CreateSeuratObject(counts = t(ad$layers[["raw_counts"]]), 
+                                  meta.data = ad$obs)
 
-## Merging and Dimensional Reduction
+#Adding Dimensional Reduction
 
-```{r}
-
-SeuratMerge <- JoinLayers(SeuratMerge)
-DefaultAssay(SeuratMerge) <- "RNA"
-
-all.genes <- rownames(SeuratMerge@assays$RNA$counts)
-SeuratMerge  <- NormalizeData(SeuratMerge)
-SeuratMerge  <- FindVariableFeatures(SeuratMerge, nfeatures = 2500)
-VariableFeatures(SeuratMerge) <- VariableFeatures(SeuratMerge)[-grep("^IG[HLK][VDJCAGM]", VariableFeatures(SeuratMerge))]
-
-SeuratMerge  <- SeuratMerge %>%
-                  ScaleData(vars.to.regress = "percent.mt", 
-                            features = all.genes, 
-                            verbose = FALSE) %>%
-                  RunPCA(features = VariableFeatures(SeuratMerge), 
-                         verbose = FALSE)
-SeuratMerge <- RunHarmony(SeuratMerge, "orig.ident")
-
-SeuratMerge <- SeuratMerge %>%
-                  FindNeighbors(reduction = "harmony") %>%
-                  FindClusters(graph.name = "RNA_snn", algorithm = 4) 
-        
-SeuratMerge <- RunUMAP(SeuratMerge, 
-                       reduction = "harmony", 
-                       dims = 1:10)
+PCA <- ad$obsm$X_pca
+rownames(PCA) <- rownames(ad$obs)
+PCA <- CreateDimReducObject(embeddings = PCA,
+                             loadings = PCA,
+                             projected = PCA,
+                             key = "PC_",
+                             assay = "RNA")
+SeuratMerge[["pca"]] <- PCA
 
 
+UMAP <- ad$obsm$X_umap
+rownames(UMAP) <- rownames(ad$obs)
+UMAP <- CreateDimReducObject(embeddings = UMAP,
+                             loadings = UMAP,
+                             projected = UMAP,
+                             key = "UMAP_",
+                             assay = "RNA")
 
-saveRDS(SeuratMerge, "./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
+SeuratMerge[["umap"]] <- UMAP
+
+#Adding Epitope Information
+Epitope.Data <- read.delim("./data/Kim2022/WU368_kim_et_al_nature_2022_mabs.tsv")
+Epitope.Data$cell_id <- stringr::str_split(Epitope.Data$h_sequence_id, "_con", simplify = TRUE)[,1]
+
+meta <- SeuratMerge[[]]
+meta$barcodes <- rownames(meta)
+meta <- merge(meta, Epitope.Data, by = "cell_id", all = TRUE)
+meta <- meta[-which(is.na(meta$barcodes)),]
+new.meta.data <- data.frame(Spike.Specific = meta$elisa, 
+                            row.names = meta$barcodes)
+new.meta.data$Spike.Specific[is.na(new.meta.data$Spike.Specific)] <- "Unknown"
+new.meta.data$Spike.Specific[new.meta.data$Spike.Specific == TRUE] <- "Yes"
+new.meta.data$Spike.Specific[new.meta.data$Spike.Specific == FALSE] <- "No"
+SeuratMerge <- AddMetaData(SeuratMerge, new.meta.data)
+
+#TODO Add BCR Sequence Data to Seurat with scRepertoire
+
+
+############################
+#Saving Outputs for Benisse
+############################
+
+#Expression
+write.csv(as.matrix(SeuratMerge@assays$RNA$counts), "./data/Benisse/inputs/Kim2022_exp.csv")
+
+#BCR
 ```
 
 ## Figure 3A
