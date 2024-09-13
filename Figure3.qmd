@@ -9,7 +9,6 @@ date: "7/23/24"
 ## Loading Libraries
 
 ```{r}
-library(SeuratDisk)
 library(Seurat)
 library(scRepertoire)
 library(patchwork)
@@ -75,9 +74,42 @@ new.meta.data$Spike.Specific[new.meta.data$Spike.Specific == TRUE] <- "Yes"
 new.meta.data$Spike.Specific[new.meta.data$Spike.Specific == FALSE] <- "No"
 SeuratMerge <- AddMetaData(SeuratMerge, new.meta.data)
 
-#TODO Add BCR Sequence Data to Seurat with scRepertoire
+####################
+#Attaching BCR data 
+####################
+
+#Loading the Light Chain
+IGL <- read.delim("./data/kim2022/WU368_kim_et_al_nature_2022_bcr_light.tsv.gz")[,c("cell_id", "locus", "v_call", "d_call", "j_call", "isotype", "productive", "junction_aa", "junction", "consensus_count", "duplicate_count")]
+IGL <- IGL[!is.na(IGL$cell_id),]
+colnames(IGL) <- c("barcode", "chain", "v_gene", "d_gene", "j_gene", "c_gene", "productive", "cdr3", "cdr3_nt", "reads", "umis")
+
+#Loading the Heavy Chain
+IGH <- read.delim("./data/kim2022/WU368_kim_et_al_nature_2022_bcr_heavy.tsv.gz")[,c("cell_id", "locus", "v_call", "d_call", "j_call", "isotype", "productive", "junction_aa", "junction", "consensus_count", "duplicate_count")]
+IGH <- IGH[!is.na(IGH$cell_id),]
+colnames(IGH) <- c("barcode", "chain", "v_gene", "d_gene", "j_gene", "c_gene", "productive", "cdr3", "cdr3_nt", "reads", "umis")
+
+BCR <- rbind(IGH, IGL)
+samples.vector <- stringr::str_split(BCR$barcode, "_", simplify = TRUE)[,1]
+#Update vector to match larger grouping
+samples.vector <- str_replace(samples.vector, "368.07", "368-07")
+samples.vector <- str_replace(samples.vector, "368.22", "368-22")
+samples.vector <- str_replace(samples.vector, "368.20", "368-20")
+samples.vector <- str_split(samples.vector, "[.]", simplify = TRUE)[,1]
+
+BCR.list <- split(BCR, samples.vector)
+
+BCR.combined <- combineBCR(BCR.list, 
+                           samples = names(BCR.list), 
+                           removeNA = TRUE)
 
 
+meta <- SeuratMerge[[]]
+meta$barcodes <- rownames(meta)
+meta <- merge(meta, Epitope.Data, by = "cell_id", all = TRUE)
+
+
+
+saveRDS(SeuratMerge, "./data/processed/Kim2022_SeuratObject.rds")
 ############################
 #Saving Outputs for Benisse
 ############################
