@@ -101,23 +101,44 @@ BCR.list <- split(BCR, samples.vector)
 BCR.combined <- combineBCR(BCR.list, 
                            samples = names(BCR.list), 
                            removeNA = TRUE)
-
+saveRDS(BCR.combined, "./data/processed/Processed_BCR.rds")
 
 meta <- SeuratMerge[[]]
 meta$barcodes <- rownames(meta)
-meta <- merge(meta, Epitope.Data, by = "cell_id", all = TRUE)
+BCR.rbind <- do.call(rbind, BCR.combined)
+BCR.rbind$barcode <- sub("^\\d+-\\w+_", "", BCR.rbind$barcode)
+meta <- merge(meta, BCR.rbind, by.x = "cell_id", by.y = "barcode")
+barcodes <- meta$barcodes
+meta <- meta[,c(colnames(BCR.rbind)[-c(1:2)],"donor")]
+meta$barcode <- barcodes
 
-
+meta.list <- split(meta, meta$donor)
+SeuratMerge <- combineExpression(meta.list, SeuratMerge)
 
 saveRDS(SeuratMerge, "./data/processed/Kim2022_SeuratObject.rds")
+
 ############################
 #Saving Outputs for Benisse
 ############################
 
-#Expression
-write.csv(as.matrix(SeuratMerge@assays$RNA$counts), "./data/Benisse/inputs/Kim2022_exp.csv")
-
-#BCR
+tmp <- BCR[BCR$chain == "IGH",]
+tmp <- tmp %>%
+          group_by(barcode) %>%
+          slice_max(order_by = reads, n=1) %>%
+          as.data.frame()
+  
+tmp <- tmp %>%
+          group_by(barcode) %>%
+          slice_max(order_by = umis, n=1) %>%
+          as.data.frame()
+          
+tmp <- data.frame(row.names = tmp$barcode,
+                  contigs = paste0(tmp$barcode, "_contig_1"), 
+                  cdr3 = tmp$cdr3)
+  
+rownames(tmp) <- stringr::str_replace_all(rownames(tmp), "-", ".")
+  
+write.csv(tmp, "./data/Benisse/inputs/Kim2022_contigs.csv")
 ```
 
 ## Figure 3A
