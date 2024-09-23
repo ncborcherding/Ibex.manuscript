@@ -7,7 +7,7 @@ editor: visual
 date: "7/23/24"
 ---
 
-## Loading Libraries and Functions
+## Loading Libraries
 
 ```{r}
 library(reshape2)
@@ -18,13 +18,16 @@ library(ggthemes)
 library(patchwork)
 ```
 
+## Loading Data
+
 ```{r}
-tuned.results <- list.files("~/Documents/GitHub/Ibex.manuscript/data/tuningRuns", 
+tuned.results <- list.files("~/Documents/GitHub/Ibex.manuscript/data/tuningRuns/Preliminary", 
                                 full.names = TRUE)
 file.names <- str_split(tuned.results, "/", simplify = TRUE)[,ncol(str_split(tuned.results, "/", simplify = TRUE))]
 file.names <- str_remove_all(file.names, ".rds")
 chain <- str_split(file.names, "_", simplify = TRUE)[,1]
 
+#Loading Tuning Runs
 total.results <- list()
 for(x in seq_along(tuned.results)) {
   tmp <- readRDS(tuned.results[x])
@@ -32,12 +35,14 @@ for(x in seq_along(tuned.results)) {
   total.results[[x]] <- tmp
 }
 
-
+#Adding Different Groups
 tuned.results <- do.call(rbind, total.results)
 tuned.results$overall.model <- paste0(tuned.results$method, "_", tuned.results$model)
 tuned.results$approach <- ifelse(tuned.results$method == "OHE", "OHE", "AAP")
 tuned.results$group <- str_split(tuned.results$model, "_", simplify = TRUE)[,1]
 
+#Ordering Grouping variable
+tuned.results$group <- factor(tuned.results$group, levels = c("L1.CNN", "L2.CNN", "L3.CNN",  "L1.VAE", "L2.VAE","L3.VAE"))
 ```
 
 ## Figure 1C
@@ -67,7 +72,7 @@ plot1 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim1",],
           panel.background = element_rect(colour = "black", linewidth =1)) 
 
 #################
-#Laten Dimensions
+#Latent Dimensions
 #################
 plot2 <- ggplot(tuned.results[tuned.results$variable == "latent_dim",], 
        aes(x=as.numeric(value), y = -log10(as.numeric(score)), group = group)) + 
@@ -121,7 +126,7 @@ plot4 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim3",],
           panel.background = element_rect(colour = "black", linewidth =1)) 
 
 plot3 + plot4 + plot_layout(guides = "collect")
-ggsave("./outputs/Supplemental/FigureX.pdf", height = 5.5, width = 10, dpi = 300)
+ggsave("./outputs/Supplemental/FigureA.pdf", height = 5.5, width = 10, dpi = 300)
 ```
 
 ## Figure 1D
@@ -132,6 +137,9 @@ We are not worried about what the different parameters affected the performance,
 
 ```{r}
 tmp.subset <- tuned.results[tuned.results$method != "OHE" & tuned.results$variable == "hidden_dim1" & tuned.results$optimizer != "sgd",]
+tmp.subset <- tmp.subset[as.numeric(tmp.subset$score) <= 10,]
+tmp.subset <- na.omit(tmp.subset)
+
 median.value = tmp.subset %>%
                   group_by(arch) %>%
                   summarise(median_value = median(as.numeric(score)))
@@ -157,6 +165,14 @@ ggplot(tmp.subset,
           panel.background = element_rect(colour = "black", linewidth =1)) 
 ggsave("./outputs/Figure1/Figure1D.pdf", height = 4.5, width = 6, dpi = 300)
 ```
+
+## Figure 1E
+
+Batch/LR/Epoch
+
+## Figure 1F
+
+CDR1/2/3 vs CDR3 correlation
 
 ## Conclusions
 
