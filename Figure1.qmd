@@ -11,16 +11,18 @@ date: "7/23/24"
 
 ```{r}
 library(reshape2)
+library(dplyr)
 library(viridis)
 library(stringr)
 library(ggplot2)
 library(ggthemes)
+library(ggpubr)
 library(patchwork)
 
 source("R/findElbowPoint.R")
 ```
 
-## Loading Data
+## Loading Prelimnary Tuning Data
 
 ```{r}
 tuned.results <- list.files("~/Documents/GitHub/Ibex.manuscript/data/tuningRuns/Preliminary", 
@@ -45,6 +47,9 @@ tuned.results$group <- str_split(tuned.results$model, "_", simplify = TRUE)[,1]
 
 #Ordering Grouping variable
 tuned.results$group <- factor(tuned.results$group, levels = c("L1.CNN", "L2.CNN", "L3.CNN",  "L1.VAE", "L2.VAE","L3.VAE"))
+
+tuned.results <- tuned.results %>%
+                      filter(as.numeric(score) < 10) 
 ```
 
 ## Figure 1C
@@ -70,6 +75,7 @@ elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
 elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
 elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
 
+
 elbow.point <- elbow.point %>%
                 group_by(approach) %>%
                 summarise(median_elbow_x = median(as.numeric(elbow_x), na.rm = TRUE)) %>%
@@ -93,7 +99,7 @@ plot1 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim1",],
                     vjust = -0.5, 
                     color = "black", 
                     size = 3) + 
-          facet_grid(optimizer~approach) + 
+          facet_grid(.~approach) + 
           scale_x_continuous(trans='log2') + 
           ylim(-2.5,5) + 
           theme_clean() + 
@@ -122,7 +128,7 @@ elbow.point <- elbow.point %>%
 plot2 <- ggplot(tuned.results[tuned.results$variable == "latent_dim",], 
                 aes(x=as.numeric(value), y = -log10(as.numeric(score)))) + 
             geom_smooth(aes(color = group, group = group), lwd = 0.5, alpha = 0.7) + 
-            facet_grid(optimizer~approach) + 
+            facet_grid(.~approach) + 
             geom_vline(data = elbow.point, 
                        aes(xintercept = median_elbow_x), 
                        linetype = "dashed") + 
@@ -144,8 +150,8 @@ plot2 <- ggplot(tuned.results[tuned.results$variable == "latent_dim",],
                   panel.grid.minor = element_blank(),
                   panel.background = element_rect(colour = "black", linewidth =1)) 
 
-plot1 + plot2 + plot_layout(guides = "collect")
-ggsave("./outputs/Figure1/Figure1C.pdf", height = 8, width = 10)
+plot1 + plot2 + plot_layout(guides = "collect", ncol = 1)
+ggsave("./outputs/Figure1/Figure1C.pdf", height = 7, width = 6)
 
 #############
 #Layer 2
@@ -245,7 +251,6 @@ We are not worried about what the different parameters affected the performance,
 
 ```{r}
 tmp.subset <- tuned.results[tuned.results$method != "OHE" & tuned.results$variable == "hidden_dim1" & tuned.results$optimizer != "sgd",]
-tmp.subset <- tmp.subset[as.numeric(tmp.subset$score) <= 10,]
 tmp.subset <- na.omit(tmp.subset)
 
 median.value = tmp.subset %>%
@@ -276,11 +281,192 @@ ggsave("./outputs/Figure1/Figure1D.pdf", height = 4.5, width = 6, dpi = 300)
 
 ## Figure 1E
 
-Batch/LR/Epoch
+Comparing results for Expanded Sequences (including amino acids from CDR1/2/3). These runs had set optimizer of Adam and activation ReLU.
+
+```{r}
+expanded.results <- list.files("~/Documents/GitHub/Ibex.manuscript/data/tuningRuns/ExpandedSequence", 
+                                full.names = TRUE)
+file.names <- str_split(expanded.results, "/", simplify = TRUE)[,ncol(str_split(expanded.results, "/", simplify = TRUE))]
+file.names <- str_remove_all(file.names, ".rds")
+chain <- str_split(file.names, "_", simplify = TRUE)[,1]
+
+#Loading Tuning Runs
+total.results <- list()
+for(x in seq_along(expanded.results)) {
+  tmp <- readRDS(expanded.results[x])
+  tmp$model <- paste0(tmp$model, "_", chain[x])
+  total.results[[x]] <- tmp
+}
+
+#Adding Different Groups
+expanded.results <- do.call(rbind, total.results)
+expanded.results$overall.model <- paste0(expanded.results$method, "_", expanded.results$model)
+expanded.results$approach <- ifelse(expanded.results$method == "OHE", "OHE", "AAP")
+expanded.results$group <- str_split(expanded.results$model, "_", simplify = TRUE)[,1]
+
+#Ordering Grouping variable
+expanded.results$group <- factor(expanded.results$group, levels = c("L1.CNN", "L2.CNN", "L3.CNN",  "L1.VAE", "L2.VAE","L3.VAE"))
+
+expanded.results <- expanded.results %>%
+                      filter(as.numeric(score) < 10) 
+
+
+tmp <- expanded.results[expanded.results$variable == "hidden_dim1",]
+tmp.list <- split(tmp, list(tmp$group, tmp$approach))
+
+lapply(tmp.list, function(x) {
+  findElbowPoint(x[,"value"], -log10(as.numeric(x[,"score"])))
+}) -> elbow.point.list
+elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
+elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
+elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
+
+
+elbow.point <- elbow.point %>%
+                group_by(approach) %>%
+                summarise(median_elbow_x = median(as.numeric(elbow_x), na.rm = TRUE)) %>%
+                as.data.frame()
+
+plot1 <- ggplot(expanded.results[expanded.results$variable == "hidden_dim1",], 
+                aes(x=as.numeric(value), y = -log10(as.numeric(score)),)) + 
+          geom_smooth(aes(color = group, group = group), lwd = 0.5, alpha = 0.7) + 
+          
+          ylab("-log10(mean_squared_error)") + 
+          xlab("Layer 1 Size") + 
+          scale_color_viridis(discrete = TRUE) + 
+          geom_vline(data = elbow.point, 
+                     aes(xintercept = median_elbow_x), 
+                     linetype = "dashed") + 
+          geom_text(data = elbow.point, 
+                    aes(x = median_elbow_x, 
+                        y = -1, 
+                        label = median_elbow_x), 
+                    angle = 90, 
+                    vjust = -0.5, 
+                    color = "black", 
+                    size = 3) + 
+          facet_grid(.~approach) + 
+          scale_x_continuous(trans='log2') + 
+          ylim(-2.5,5) + 
+          theme_clean() + 
+            theme(panel.grid.major = element_blank(), 
+                  panel.grid.minor = element_blank(),
+                  panel.background = element_rect(colour = "black", linewidth =1)) 
+
+#################
+#Latent Dimensions
+#################
+tmp <- expanded.results[expanded.results$variable == "latent_dim",]
+tmp.list <- split(tmp, list(tmp$group, tmp$approach))
+
+lapply(tmp.list, function(x) {
+  findElbowPoint(x[,"value"], -log10(as.numeric(x[,"score"])))
+}) -> elbow.point.list
+elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
+elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
+elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
+
+elbow.point <- elbow.point %>%
+                group_by(approach) %>%
+                summarise(median_elbow_x = median(as.numeric(elbow_x), na.rm = TRUE)) %>%
+                as.data.frame()
+
+plot2 <- ggplot(expanded.results[expanded.results$variable == "latent_dim",], 
+                aes(x=as.numeric(value), y = -log10(as.numeric(score)))) + 
+            geom_smooth(aes(color = group, group = group), lwd = 0.5, alpha = 0.7) + 
+            facet_grid(.~approach) + 
+            geom_vline(data = elbow.point, 
+                       aes(xintercept = median_elbow_x), 
+                       linetype = "dashed") + 
+            geom_text(data = elbow.point, 
+                    aes(x = median_elbow_x, 
+                        y = -1, 
+                        label = median_elbow_x), 
+                    angle = 90, 
+                    vjust = -0.5, 
+                    color = "black", 
+                    size = 3) + 
+            ylab("-log10(mean_squared_error)") + 
+            xlab("Latent Dimension Size") + 
+            scale_color_viridis(discrete = TRUE) + 
+            ylim(-2.5,5) + 
+            theme_clean() + 
+            scale_x_continuous(trans='log2') + 
+            theme(panel.grid.major = element_blank(), 
+                  panel.grid.minor = element_blank(),
+                  panel.background = element_rect(colour = "black", linewidth =1)) 
+
+plot1 + plot2 + plot_layout(guides = "collect", ncol = 1)
+ggsave("./outputs/Figure1/Figure1E.pdf", height = 7, width = 6)
+```
 
 ## Figure 1F
 
-CDR1/2/3 vs CDR3 correlation
+Looking at loss as a function of epoch, batch size and learning rate with fixed hidden and latent dimensions.
+
+```{r}
+refined.results <- list.files("~/Documents/GitHub/Ibex.manuscript/data/tuningRuns/Refined", 
+                                full.names = TRUE)
+file.names <- str_split(refined.results, "/", simplify = TRUE)[,ncol(str_split(refined.results, "/", simplify = TRUE))]
+file.names <- str_remove_all(file.names, ".rds")
+chain <- str_split(file.names, "_", simplify = TRUE)[,1]
+
+#Loading Tuning Runs
+total.results <- list()
+for(x in seq_along(refined.results)) {
+  tmp <- readRDS(refined.results[x])
+  tmp$model <- paste0(tmp$model, "_", chain[x])
+  total.results[[x]] <- tmp
+}
+
+#Adding Different Groups
+refined.results <- do.call(rbind, total.results)
+refined.results$overall.model <- paste0(refined.results$method)
+refined.results$approach <- ifelse(refined.results$method == "OHE", "OHE", "AAP")
+refined.results$group <- str_split(refined.results$model, "_", simplify = TRUE)[,1]
+refined.results$final.class <- paste0(refined.results$overall.model, "_", refined.results$learning_rate, "_", refined.results$batch_size, "_", refined.results$epoch_number)
+
+#Ordering Grouping variable
+refined.results$group <- factor(refined.results$group, levels = c("L1.CNN", "L2.CNN", "L3.CNN",  "L1.VAE", "L2.VAE","L3.VAE"))
+
+refined.results <- refined.results %>%
+                      filter(data == "validation") %>%
+                      group_by(final.class) %>%
+                      slice(which.min(as.numeric(value)))
+
+plot1 <- refined.results %>%
+            ggplot(aes(x = as.factor(batch_size), y = -log10(value))) + 
+            geom_boxplot(aes(fill = arch)) + 
+             stat_compare_means(method = "anova", label.x.npc = "center") + 
+            facet_grid(.~approach) + 
+            ylab("-log10(MSE)") + 
+            scale_fill_viridis(discrete = TRUE) + 
+            xlab("Batch Size") + 
+            theme_clean()
+
+plot2 <- refined.results %>%
+            ggplot(aes(x = as.factor(epoch_number), y = -log10(value))) + 
+            geom_boxplot(aes(fill = arch)) + 
+             stat_compare_means(method = "anova", label.x.npc = "center") + 
+            facet_grid(.~approach) + 
+            ylab("-log10(MSE)") + 
+            scale_fill_viridis(discrete = TRUE) + 
+            xlab("Epoch Number") + 
+            theme_clean()
+
+plot3 <- refined.results %>%
+            ggplot(aes(x = as.factor(learning_rate), y = -log10(value))) + 
+            geom_boxplot(aes(fill = arch)) + 
+            ylab("-log10(MSE)") + 
+            stat_compare_means(method = "anova", label.x.npc = "center") + 
+            facet_grid(.~approach) + 
+            scale_fill_viridis(discrete = TRUE) + 
+            xlab("Learning Rate") + 
+            theme_clean()
+
+plot1 + plot2 + plot3 + plot_layout(ncol = 1, guides = "collect")
+                      
+```
 
 ## Conclusions
 
