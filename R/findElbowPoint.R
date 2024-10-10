@@ -3,6 +3,10 @@ findElbowPoint <- function(x, y) {
   x <- as.numeric(x)
   y <- as.numeric(y)
   
+  sorted_indices <- order(x)
+  x <- x[sorted_indices]
+  y <- y[sorted_indices]
+  
   # Create a line between the first and last point
   line_vector <- c(x[length(x)] - x[1], y[length(y)] - y[1])
   

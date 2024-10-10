@@ -65,7 +65,7 @@ Visualization of the effect of the hidden layers (size and number) and latent di
 #Layer 1
 #############
 
-tmp <- tuned.results[tuned.results$variable == "hidden_dim1",]
+tmp <- tuned.results[tuned.results$variable == "hidden_dim1",] 
 tmp.list <- split(tmp, list(tmp$group, tmp$approach))
 
 lapply(tmp.list, function(x) {
@@ -78,7 +78,7 @@ elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
 
 elbow.point <- elbow.point %>%
                 group_by(approach) %>%
-                summarise(median_elbow_x = median(as.numeric(elbow_x), na.rm = TRUE)) %>%
+                summarise(mean_elbow_x = round(mean(as.numeric(elbow_x), na.rm = TRUE))) %>%
                 as.data.frame()
 
 plot1 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim1",], 
@@ -89,17 +89,17 @@ plot1 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim1",],
           xlab("Layer 1 Size") + 
           scale_color_viridis(discrete = TRUE) + 
           geom_vline(data = elbow.point, 
-                     aes(xintercept = median_elbow_x), 
+                     aes(xintercept = mean_elbow_x), 
                      linetype = "dashed") + 
           geom_text(data = elbow.point, 
-                    aes(x = median_elbow_x, 
+                    aes(x = mean_elbow_x, 
                         y = -1, 
-                        label = median_elbow_x), 
+                        label = mean_elbow_x), 
                     angle = 90, 
                     vjust = -0.5, 
                     color = "black", 
                     size = 3) + 
-          facet_grid(.~approach) + 
+          facet_grid(optimizer~approach) + 
           scale_x_continuous(trans='log2') + 
           ylim(-2.5,5) + 
           theme_clean() + 
@@ -122,20 +122,20 @@ elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
 
 elbow.point <- elbow.point %>%
                 group_by(approach) %>%
-                summarise(median_elbow_x = median(as.numeric(elbow_x), na.rm = TRUE)) %>%
+                summarise(mean_elbow_x = round(mean(as.numeric(elbow_x), na.rm = TRUE))) %>%
                 as.data.frame()
 
 plot2 <- ggplot(tuned.results[tuned.results$variable == "latent_dim",], 
                 aes(x=as.numeric(value), y = -log10(as.numeric(score)))) + 
             geom_smooth(aes(color = group, group = group), lwd = 0.5, alpha = 0.7) + 
-            facet_grid(.~approach) + 
+            facet_grid(optimizer~approach) + 
             geom_vline(data = elbow.point, 
-                       aes(xintercept = median_elbow_x), 
+                       aes(xintercept = mean_elbow_x), 
                        linetype = "dashed") + 
             geom_text(data = elbow.point, 
-                    aes(x = median_elbow_x, 
+                    aes(x = mean_elbow_x, 
                         y = -1, 
-                        label = median_elbow_x), 
+                        label = mean_elbow_x), 
                     angle = 90, 
                     vjust = -0.5, 
                     color = "black", 
@@ -150,8 +150,8 @@ plot2 <- ggplot(tuned.results[tuned.results$variable == "latent_dim",],
                   panel.grid.minor = element_blank(),
                   panel.background = element_rect(colour = "black", linewidth =1)) 
 
-plot1 + plot2 + plot_layout(guides = "collect", ncol = 1)
-ggsave("./outputs/Figure1/Figure1C.pdf", height = 7, width = 6)
+plot1 + plot2 + plot_layout(guides = "collect", ncol = 2)
+ggsave("./outputs/Figure1/Figure1C.pdf", height = 5.5, width = 10)
 
 #############
 #Layer 2
@@ -245,47 +245,11 @@ ggsave("./outputs/Supplemental/FigureA.pdf", height = 5.5, width = 10, dpi = 300
 
 ## Figure 1D
 
-Assessment of the performance of different amino acid property transformations - filtering out any OHE results (by definition not an amino acid property) and any model that uses sgd. The latter is because these models serially under performed compared to ADAM or RMSprop.
-
-We are not worried about what the different parameters affected the performance, so we are filtering on hidden_dim1 as all models have at least 1 layer and we can then plot 1 loss value for each model.
-
-```{r}
-tmp.subset <- tuned.results[tuned.results$method != "OHE" & tuned.results$variable == "hidden_dim1" & tuned.results$optimizer != "sgd",]
-tmp.subset <- na.omit(tmp.subset)
-
-median.value = tmp.subset %>%
-                  group_by(arch) %>%
-                  summarise(median_value = median(as.numeric(score)))
-median.value$median_value <- -log10(median.value$median_value)
-                
-
-ggplot(tmp.subset, 
-       aes(x=method, y = -log10(as.numeric(score)))) + 
-    geom_boxplot(aes(fill = method), alpha = 0.7) + 
-  facet_grid(.~arch, scales = "free_x") + 
-  geom_hline(data = median.value, aes(yintercept = median_value), size = 1) + 
-  
-    ylab("-log10(mean_squared_error)") + 
-    xlab("Amino Acid Properties") + 
-  scale_x_discrete(limits = rev) + 
-  coord_flip() + 
-    scale_fill_viridis(discrete = TRUE, direction = -1) + 
-  guides(fill = "none") + 
-  
-  theme_clean() + 
-    theme(panel.grid.major = element_blank(), 
-          panel.grid.minor = element_blank(),
-          panel.background = element_rect(colour = "black", linewidth =1)) 
-ggsave("./outputs/Figure1/Figure1D.pdf", height = 4.5, width = 6, dpi = 300)
-```
-
-## Figure 1E
-
 Comparing results for Expanded Sequences (including amino acids from CDR1/2/3). These runs had set optimizer of Adam and activation ReLU.
 
 ```{r}
 expanded.results <- list.files("~/Documents/GitHub/Ibex.manuscript/data/tuningRuns/ExpandedSequence", 
-                                full.names = TRUE)
+                               full.names = TRUE)
 file.names <- str_split(expanded.results, "/", simplify = TRUE)[,ncol(str_split(expanded.results, "/", simplify = TRUE))]
 file.names <- str_remove_all(file.names, ".rds")
 chain <- str_split(file.names, "_", simplify = TRUE)[,1]
@@ -396,8 +360,44 @@ plot2 <- ggplot(expanded.results[expanded.results$variable == "latent_dim",],
                   panel.grid.minor = element_blank(),
                   panel.background = element_rect(colour = "black", linewidth =1)) 
 
-plot1 + plot2 + plot_layout(guides = "collect", ncol = 1)
-ggsave("./outputs/Figure1/Figure1E.pdf", height = 7, width = 6)
+plot1 + plot2 + plot_layout(guides = "collect", ncol = 2)
+ggsave("./outputs/Figure1/Figure1D.pdf", height = 3, width = 10)
+```
+
+## Figure 1E
+
+Assessment of the performance of different amino acid property transformations - filtering out any OHE results (by definition not an amino acid property) and any model that uses sgd. The latter is because these models serially under performed compared to ADAM or RMSprop.
+
+We are not worried about what the different parameters affected the performance, so we are filtering on hidden_dim1 as all models have at least 1 layer and we can then plot 1 loss value for each model.
+
+```{r}
+tmp.subset <- tuned.results[tuned.results$method != "OHE" & tuned.results$variable == "hidden_dim1" & tuned.results$optimizer != "sgd",]
+tmp.subset <- na.omit(tmp.subset)
+
+median.value = tmp.subset %>%
+                  group_by(arch) %>%
+                  summarise(median_value = median(as.numeric(score)))
+median.value$median_value <- -log10(median.value$median_value)
+                
+
+ggplot(tmp.subset, 
+       aes(x=method, y = -log10(as.numeric(score)))) + 
+    geom_boxplot(aes(fill = method), alpha = 0.7) + 
+  facet_grid(.~arch, scales = "free_x") + 
+  geom_hline(data = median.value, aes(yintercept = median_value), size = 1) + 
+  
+    ylab("-log10(mean_squared_error)") + 
+    xlab("Amino Acid Properties") + 
+  scale_x_discrete(limits = rev) + 
+  coord_flip() + 
+    scale_fill_viridis(discrete = TRUE, direction = -1) + 
+  guides(fill = "none") + 
+  
+  theme_clean() + 
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          panel.background = element_rect(colour = "black", linewidth =1)) 
+ggsave("./outputs/Figure1/Figure1E.pdf", height = 4.5, width = 6, dpi = 300)
 ```
 
 ## Figure 1F
@@ -434,8 +434,21 @@ refined.results <- refined.results %>%
                       group_by(final.class) %>%
                       slice(which.min(as.numeric(value)))
 
+refined.results <- refined.results %>%
+                    mutate(E.Stop = as.numeric(epoch_number) - as.numeric(epoch))
+
 plot1 <- refined.results %>%
             ggplot(aes(x = as.factor(batch_size), y = -log10(value))) + 
+            geom_boxplot(aes(fill = arch)) + 
+             stat_compare_means(method = "anova", label.x.npc = "center") + 
+            facet_grid(.~approach) + 
+            ylab("Early Stop Epochs") + 
+            scale_fill_viridis(discrete = TRUE) + 
+            xlab("Batch Size") + 
+            theme_clean()
+
+plot2 <- refined.results %>%
+            ggplot(aes(x = as.factor(batch_size), y = E.Stop)) + 
             geom_boxplot(aes(fill = arch)) + 
              stat_compare_means(method = "anova", label.x.npc = "center") + 
             facet_grid(.~approach) + 
@@ -444,7 +457,7 @@ plot1 <- refined.results %>%
             xlab("Batch Size") + 
             theme_clean()
 
-plot2 <- refined.results %>%
+plot3 <- refined.results %>%
             ggplot(aes(x = as.factor(epoch_number), y = -log10(value))) + 
             geom_boxplot(aes(fill = arch)) + 
              stat_compare_means(method = "anova", label.x.npc = "center") + 
@@ -454,7 +467,17 @@ plot2 <- refined.results %>%
             xlab("Epoch Number") + 
             theme_clean()
 
-plot3 <- refined.results %>%
+plot4 <- refined.results %>%
+            ggplot(aes(x = as.factor(epoch_number), y = E.Stop)) + 
+            geom_boxplot(aes(fill = arch)) + 
+             stat_compare_means(method = "anova", label.x.npc = "center") + 
+            facet_grid(.~approach) + 
+            ylab("Early Stop Epochs") + 
+            scale_fill_viridis(discrete = TRUE) + 
+            xlab("Epoch Number") + 
+            theme_clean()
+
+plot5 <- refined.results %>%
             ggplot(aes(x = as.factor(learning_rate), y = -log10(value))) + 
             geom_boxplot(aes(fill = arch)) + 
             ylab("-log10(MSE)") + 
@@ -464,7 +487,17 @@ plot3 <- refined.results %>%
             xlab("Learning Rate") + 
             theme_clean()
 
-plot1 + plot2 + plot3 + plot_layout(ncol = 1, guides = "collect")
+plot6 <- refined.results %>%
+            ggplot(aes(x = as.factor(learning_rate), y = E.Stop)) + 
+            geom_boxplot(aes(fill = arch)) + 
+            ylab("Early Stop Epochs") + 
+            stat_compare_means(method = "anova", label.x.npc = "center") + 
+            facet_grid(.~approach) + 
+            scale_fill_viridis(discrete = TRUE) + 
+            xlab("Learning Rate") + 
+            theme_clean()
+
+plot3 + plot4 + plot5 + plot6 + plot_layout(ncol = 1, guides = "collect")
                       
 ```
 
