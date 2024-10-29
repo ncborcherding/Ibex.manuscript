@@ -69,7 +69,7 @@ tmp <- tuned.results[tuned.results$variable == "hidden_dim1",]
 tmp.list <- split(tmp, list(tmp$group, tmp$approach))
 
 lapply(tmp.list, function(x) {
-  findElbowPoint(x[,"value"], -log10(as.numeric(x[,"score"])))
+  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
 }) -> elbow.point.list
 elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
 elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
@@ -78,7 +78,7 @@ elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
 
 elbow.point <- elbow.point %>%
                 group_by(approach) %>%
-                summarise(mean_elbow_x = round(mean(as.numeric(elbow_x), na.rm = TRUE))) %>%
+                summarise(median_elbow_x = round(median(as.numeric(elbow_x), na.rm = TRUE))) %>%
                 as.data.frame()
 
 plot1 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim1",], 
@@ -89,12 +89,12 @@ plot1 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim1",],
           xlab("Layer 1 Size") + 
           scale_color_viridis(discrete = TRUE) + 
           geom_vline(data = elbow.point, 
-                     aes(xintercept = mean_elbow_x), 
+                     aes(xintercept = median_elbow_x), 
                      linetype = "dashed") + 
           geom_text(data = elbow.point, 
-                    aes(x = mean_elbow_x, 
+                    aes(x = median_elbow_x, 
                         y = -1, 
-                        label = mean_elbow_x), 
+                        label = median_elbow_x), 
                     angle = 90, 
                     vjust = -0.5, 
                     color = "black", 
@@ -114,7 +114,7 @@ tmp <- tuned.results[tuned.results$variable == "latent_dim",]
 tmp.list <- split(tmp, list(tmp$group, tmp$approach))
 
 lapply(tmp.list, function(x) {
-  findElbowPoint(x[,"value"], -log10(as.numeric(x[,"score"])))
+  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
 }) -> elbow.point.list
 elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
 elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
@@ -122,7 +122,7 @@ elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
 
 elbow.point <- elbow.point %>%
                 group_by(approach) %>%
-                summarise(mean_elbow_x = round(mean(as.numeric(elbow_x), na.rm = TRUE))) %>%
+                summarise(median_elbow_x = round(median(as.numeric(elbow_x), na.rm = TRUE))) %>%
                 as.data.frame()
 
 plot2 <- ggplot(tuned.results[tuned.results$variable == "latent_dim",], 
@@ -130,12 +130,12 @@ plot2 <- ggplot(tuned.results[tuned.results$variable == "latent_dim",],
             geom_smooth(aes(color = group, group = group), lwd = 0.5, alpha = 0.7) + 
             facet_grid(optimizer~approach) + 
             geom_vline(data = elbow.point, 
-                       aes(xintercept = mean_elbow_x), 
+                       aes(xintercept = median_elbow_x), 
                        linetype = "dashed") + 
             geom_text(data = elbow.point, 
-                    aes(x = mean_elbow_x, 
+                    aes(x = median_elbow_x, 
                         y = -1, 
-                        label = mean_elbow_x), 
+                        label = median_elbow_x), 
                     angle = 90, 
                     vjust = -0.5, 
                     color = "black", 
@@ -158,9 +158,10 @@ ggsave("./outputs/Figure1/Figure1C.pdf", height = 5.5, width = 10)
 #############
 tmp <- tuned.results[tuned.results$variable == "hidden_dim2",]
 tmp.list <- split(tmp, list(tmp$group, tmp$approach))
+tmp.list[sapply(tmp.list, nrow) == 0] <- NULL
 
 lapply(tmp.list, function(x) {
-  findElbowPoint(x[,"value"], -log10(as.numeric(x[,"score"])))
+  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
 }) -> elbow.point.list
 elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
 elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
@@ -201,9 +202,10 @@ plot3 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim2",],
 #############
 tmp <- tuned.results[tuned.results$variable == "hidden_dim3",]
 tmp.list <- split(tmp, list(tmp$group, tmp$approach))
+tmp.list[sapply(tmp.list, nrow) == 0] <- NULL
 
 lapply(tmp.list, function(x) {
-  findElbowPoint(x[,"value"], -log10(as.numeric(x[,"score"])))
+  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
 }) -> elbow.point.list
 elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
 elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
@@ -277,9 +279,10 @@ expanded.results <- expanded.results %>%
 
 tmp <- expanded.results[expanded.results$variable == "hidden_dim1",]
 tmp.list <- split(tmp, list(tmp$group, tmp$approach))
+tmp.list[sapply(tmp.list, nrow) == 0] <- NULL
 
 lapply(tmp.list, function(x) {
-  findElbowPoint(x[,"value"], -log10(as.numeric(x[,"score"])))
+  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
 }) -> elbow.point.list
 elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
 elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
@@ -322,9 +325,10 @@ plot1 <- ggplot(expanded.results[expanded.results$variable == "hidden_dim1",],
 #################
 tmp <- expanded.results[expanded.results$variable == "latent_dim",]
 tmp.list <- split(tmp, list(tmp$group, tmp$approach))
+tmp.list[sapply(tmp.list, nrow) == 0] <- NULL
 
 lapply(tmp.list, function(x) {
-  findElbowPoint(x[,"value"], -log10(as.numeric(x[,"score"])))
+  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
 }) -> elbow.point.list
 elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
 elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
