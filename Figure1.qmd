@@ -61,188 +61,86 @@ Visualization of the effect of the hidden layers (size and number) and latent di
 -   Only visualize one layer at a time in terms of effect on loss, will filter out other layers
 
 ```{r}
+#Scaling values to be comprable
+scaled_results <- tuned.results %>%
+  group_by(group) %>%
+  mutate(scaled_score = (-log10(as.numeric(score)) - min(-log10(as.numeric(score)))) /
+           (max(-log10(as.numeric(score))) - min(-log10(as.numeric(score)))))
+
+
 #############
 #Layer 1
 #############
-
-tmp <- tuned.results[tuned.results$variable == "hidden_dim1",] 
-tmp.list <- split(tmp, list(tmp$group, tmp$approach))
-
-lapply(tmp.list, function(x) {
-  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
-}) -> elbow.point.list
-elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
-elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
-elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
-
-
-elbow.point <- elbow.point %>%
-                group_by(approach) %>%
-                summarise(median_elbow_x = round(median(as.numeric(elbow_x), na.rm = TRUE))) %>%
-                as.data.frame()
-
-plot1 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim1",], 
-                aes(x=as.numeric(value), y = -log10(as.numeric(score)),)) + 
-          geom_smooth(aes(color = group, group = group), lwd = 0.5, alpha = 0.7) + 
-          
-          ylab("-log10(mean_squared_error)") + 
+plot1 <- ggplot(scaled_results[tuned.results$variable == "hidden_dim1",], 
+       aes(x = as.numeric(value), y = scaled_score, color = group)) + 
+          geom_smooth(aes(linetype = optimizer, fill = group), 
+                      method = "loess", se = TRUE, size = 1) + 
+          ylab("Scaled\n-log10(mean squared error)") + 
           xlab("Layer 1 Size") + 
-          scale_color_viridis(discrete = TRUE) + 
-          geom_vline(data = elbow.point, 
-                     aes(xintercept = median_elbow_x), 
-                     linetype = "dashed") + 
-          geom_text(data = elbow.point, 
-                    aes(x = median_elbow_x, 
-                        y = -1, 
-                        label = median_elbow_x), 
-                    angle = 90, 
-                    vjust = -0.5, 
-                    color = "black", 
-                    size = 3) + 
-          facet_grid(optimizer~approach) + 
-          scale_x_continuous(trans='log2') + 
-          ylim(-2.5,5) + 
-          theme_clean() + 
-            theme(panel.grid.major = element_blank(), 
-                  panel.grid.minor = element_blank(),
-                  panel.background = element_rect(colour = "black", linewidth =1)) 
+          scale_color_viridis(discrete = TRUE) +
+          scale_fill_viridis(discrete = TRUE) +
+          facet_grid(.~optimizer) + 
+          theme_clean(base_size = 14) +
+          guides(linetype = "none") + 
+          theme(legend.position = "right", 
+                plot.background = element_rect(color = NA))
 
 #################
 #Latent Dimensions
 #################
-tmp <- tuned.results[tuned.results$variable == "latent_dim",]
-tmp.list <- split(tmp, list(tmp$group, tmp$approach))
+plot2 <- ggplot(scaled_results[tuned.results$variable == "latent_dim",], 
+       aes(x = as.numeric(value), y = scaled_score, color = group)) + 
+          geom_smooth(aes(linetype = optimizer, fill = group), 
+                      method = "loess", se = TRUE, size = 1) + 
+          ylab("Scaled\n-log10(mean squared error)") + 
+          xlab("Latent Dimensions") + 
+          scale_color_viridis(discrete = TRUE) +
+          scale_fill_viridis(discrete = TRUE) +
+          facet_grid(.~optimizer) + 
+          theme_clean(base_size = 14) +
+          guides(linetype = "none") + 
+          theme(legend.position = "right", 
+                plot.background = element_rect(color = NA))
 
-lapply(tmp.list, function(x) {
-  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
-}) -> elbow.point.list
-elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
-elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
-elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
-
-elbow.point <- elbow.point %>%
-                group_by(approach) %>%
-                summarise(median_elbow_x = round(median(as.numeric(elbow_x), na.rm = TRUE))) %>%
-                as.data.frame()
-
-plot2 <- ggplot(tuned.results[tuned.results$variable == "latent_dim",], 
-                aes(x=as.numeric(value), y = -log10(as.numeric(score)))) + 
-            geom_smooth(aes(color = group, group = group), lwd = 0.5, alpha = 0.7) + 
-            facet_grid(optimizer~approach) + 
-            geom_vline(data = elbow.point, 
-                       aes(xintercept = median_elbow_x), 
-                       linetype = "dashed") + 
-            geom_text(data = elbow.point, 
-                    aes(x = median_elbow_x, 
-                        y = -1, 
-                        label = median_elbow_x), 
-                    angle = 90, 
-                    vjust = -0.5, 
-                    color = "black", 
-                    size = 3) + 
-            ylab("-log10(mean_squared_error)") + 
-            xlab("Latent Dimension Size") + 
-            scale_color_viridis(discrete = TRUE) + 
-            ylim(-2.5,5) + 
-            theme_clean() + 
-            scale_x_continuous(trans='log2') + 
-            theme(panel.grid.major = element_blank(), 
-                  panel.grid.minor = element_blank(),
-                  panel.background = element_rect(colour = "black", linewidth =1)) 
-
-plot1 + plot2 + plot_layout(guides = "collect", ncol = 2)
+plot1 + plot2 + plot_layout(guides = "collect", ncol = 1)
 ggsave("./outputs/Figure1/Figure1C.pdf", height = 5.5, width = 10)
 
 #############
 #Layer 2
-#############
-tmp <- tuned.results[tuned.results$variable == "hidden_dim2",]
-tmp.list <- split(tmp, list(tmp$group, tmp$approach))
-tmp.list[sapply(tmp.list, nrow) == 0] <- NULL
-
-lapply(tmp.list, function(x) {
-  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
-}) -> elbow.point.list
-elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
-elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
-elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
-
-elbow.point <- elbow.point %>%
-                group_by(approach) %>%
-                summarise(median_elbow_x = median(as.numeric(elbow_x), na.rm = TRUE)) %>%
-                as.data.frame()
-
-plot3 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim2",], 
-                aes(x=as.numeric(value), y = -log10(as.numeric(score)))) + 
-            geom_smooth(aes(color = group, group = group), lwd = 0.5) + 
-            facet_grid(optimizer~approach) + 
-            ylab("-log10(mean_squared_error)") + 
-            xlab("Layer 2 Size") + 
-            scale_color_viridis(discrete = TRUE) + 
-            geom_vline(data = elbow.point, 
-                       aes(xintercept = median_elbow_x), 
-                       linetype = "dashed") + 
-            geom_text(data = elbow.point, 
-                      aes(x = median_elbow_x, 
-                          y = -1, 
-                          label = median_elbow_x), 
-                      angle = 90, 
-                      vjust = -0.5, 
-                      color = "black", 
-                      size = 3) + 
-            ylim(-2.5,5) + 
-            theme_clean() + 
-            scale_x_continuous(trans='log2') + 
-            theme(panel.grid.major = element_blank(), 
-                  panel.grid.minor = element_blank(),
-                  panel.background = element_rect(colour = "black", linewidth =1)) 
+#############la",]
+plot3 <- ggplot(scaled_results[tuned.results$variable == "hidden_dim2",], 
+               aes(x = as.numeric(value), y = scaled_score, color = group)) + 
+                  geom_smooth(aes(linetype = optimizer, fill = group), 
+                              method = "loess", se = TRUE, size = 1) + 
+                  ylab("Scaled\n-log10(mean squared error)") + 
+                  xlab("Layer 2 Size") + 
+                  scale_color_viridis(discrete = TRUE) +
+                  scale_fill_viridis(discrete = TRUE) +
+                  facet_grid(.~optimizer) + 
+                  theme_clean(base_size = 14) +
+                  guides(linetype = "none") + 
+                  theme(legend.position = "right", 
+                        plot.background = element_rect(color = NA))
 
 #############
 #Layer 3
 #############
-tmp <- tuned.results[tuned.results$variable == "hidden_dim3",]
-tmp.list <- split(tmp, list(tmp$group, tmp$approach))
-tmp.list[sapply(tmp.list, nrow) == 0] <- NULL
+plot4 <- ggplot(scaled_results[tuned.results$variable == "hidden_dim3",], 
+                 aes(x = as.numeric(value), y = scaled_score, color = group)) + 
+                    geom_smooth(aes(linetype = optimizer, fill = group), 
+                                method = "loess", se = TRUE, size = 1) + 
+                    ylab("Scaled\n-log10(mean squared error)") + 
+                    xlab("Layer 3 Size") + 
+                    scale_color_viridis(discrete = TRUE) +
+                    scale_fill_viridis(discrete = TRUE) +
+                    facet_grid(.~optimizer) + 
+                    theme_clean(base_size = 14) +
+                    guides(linetype = "none") + 
+                    theme(legend.position = "right", 
+                          plot.background = element_rect(color = NA))
 
-lapply(tmp.list, function(x) {
-  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
-}) -> elbow.point.list
-elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
-elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
-elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
-
-elbow.point <- elbow.point %>%
-                group_by(approach) %>%
-                summarise(median_elbow_x = median(as.numeric(elbow_x), na.rm = TRUE)) %>%
-                as.data.frame()
-
-plot4 <- ggplot(tuned.results[tuned.results$variable == "hidden_dim3",], 
-                aes(x=as.numeric(value), y = -log10(as.numeric(score)))) + 
-            geom_smooth(aes(color = group, group = group), lwd = 0.5) + 
-            facet_grid(optimizer~approach) + 
-            geom_vline(data = elbow.point, 
-                               aes(xintercept = median_elbow_x), 
-                               linetype = "dashed") + 
-            geom_text(data = elbow.point, 
-                      aes(x = median_elbow_x, 
-                          y = -1, 
-                          label = median_elbow_x), 
-                      angle = 90, 
-                      vjust = -0.5, 
-                      color = "black", 
-                      size = 3) + 
-            ylab("-log10(mean_squared_error)") + 
-            xlab("Layer 3 Size") + 
-            scale_color_viridis(discrete = TRUE) + 
-            ylim(-2.5,5) + 
-            theme_clean() + 
-            scale_x_continuous(trans='log2') + 
-            theme(panel.grid.major = element_blank(), 
-                  panel.grid.minor = element_blank(),
-                  panel.background = element_rect(colour = "black", linewidth =1)) 
-
-plot3 + plot4 + plot_layout(guides = "collect")
-ggsave("./outputs/Supplemental/FigureA.pdf", height = 5.5, width = 10, dpi = 300)
+plot3 + plot4 + plot_layout(guides = "collect", ncol = 1)
+ggsave("./outputs/Supplemental/FigureA.pdf", height = 5.5, width = 10)
 ```
 
 ## Figure 1D
@@ -277,92 +175,45 @@ expanded.results <- expanded.results %>%
                       filter(as.numeric(score) < 10) 
 
 
-tmp <- expanded.results[expanded.results$variable == "hidden_dim1",]
-tmp.list <- split(tmp, list(tmp$group, tmp$approach))
-tmp.list[sapply(tmp.list, nrow) == 0] <- NULL
+scaled_results <- expanded.results %>%
+  group_by(group) %>%
+  mutate(scaled_score = (-log10(as.numeric(score)) - min(-log10(as.numeric(score)))) /
+           (max(-log10(as.numeric(score))) - min(-log10(as.numeric(score)))))
 
-lapply(tmp.list, function(x) {
-  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
-}) -> elbow.point.list
-elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
-elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
-elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
-
-
-elbow.point <- elbow.point %>%
-                group_by(approach) %>%
-                summarise(median_elbow_x = median(as.numeric(elbow_x), na.rm = TRUE)) %>%
-                as.data.frame()
-
-plot1 <- ggplot(expanded.results[expanded.results$variable == "hidden_dim1",], 
-                aes(x=as.numeric(value), y = -log10(as.numeric(score)),)) + 
-          geom_smooth(aes(color = group, group = group), lwd = 0.5, alpha = 0.7) + 
-          
-          ylab("-log10(mean_squared_error)") + 
-          xlab("Layer 1 Size") + 
-          scale_color_viridis(discrete = TRUE) + 
-          geom_vline(data = elbow.point, 
-                     aes(xintercept = median_elbow_x), 
-                     linetype = "dashed") + 
-          geom_text(data = elbow.point, 
-                    aes(x = median_elbow_x, 
-                        y = -1, 
-                        label = median_elbow_x), 
-                    angle = 90, 
-                    vjust = -0.5, 
-                    color = "black", 
-                    size = 3) + 
-          facet_grid(.~approach) + 
-          scale_x_continuous(trans='log2') + 
-          ylim(-2.5,5) + 
-          theme_clean() + 
-            theme(panel.grid.major = element_blank(), 
-                  panel.grid.minor = element_blank(),
-                  panel.background = element_rect(colour = "black", linewidth =1)) 
+plot1 <- ggplot(scaled_results[scaled_results$variable == "hidden_dim1",], 
+                 aes(x = as.numeric(value), y = scaled_score, color = group)) + 
+                    geom_smooth(aes(fill = group), 
+                                method = "loess", se = TRUE, size = 1) + 
+                    ylab("Scaled\n-log10(mean squared error)") + 
+                    xlab("Layer 1 Size") + 
+                    scale_color_viridis(discrete = TRUE) +
+                    scale_fill_viridis(discrete = TRUE) +
+                    theme_clean(base_size = 14) +
+                    facet_grid(.~approach) + 
+                    guides(linetype = "none") + 
+                    theme(legend.position = "right", 
+                          plot.background = element_rect(color = NA))
 
 #################
 #Latent Dimensions
 #################
-tmp <- expanded.results[expanded.results$variable == "latent_dim",]
-tmp.list <- split(tmp, list(tmp$group, tmp$approach))
-tmp.list[sapply(tmp.list, nrow) == 0] <- NULL
 
-lapply(tmp.list, function(x) {
-  findElbowByCurvature(x[,"value"], -log10(as.numeric(x[,"score"])))
-}) -> elbow.point.list
-elbow.point <- dplyr::bind_rows(elbow.point.list, .id = "group")
-elbow.point$approach <- stringr::str_split(elbow.point$group, "[.]", simplify = TRUE)[,3]
-elbow.point$group <- sub("\\.[^.]*$", "", elbow.point$group)
+plot2 <- ggplot(scaled_results[scaled_results$variable == "latent_dim",], 
+                 aes(x = as.numeric(value), y = scaled_score, color = group)) + 
+                    geom_smooth(aes(fill = group), 
+                                method = "loess", se = TRUE, size = 1) + 
+                    ylab("Scaled\n-log10(mean squared error)") + 
+                    xlab("Latent Dimensions") + 
+                    scale_color_viridis(discrete = TRUE) +
+                    scale_fill_viridis(discrete = TRUE) +
+                    theme_clean(base_size = 14) +
+                    facet_grid(.~approach) + 
+                    guides(linetype = "none") + 
+                    theme(legend.position = "right", 
+                          plot.background = element_rect(color = NA))
 
-elbow.point <- elbow.point %>%
-                group_by(approach) %>%
-                summarise(median_elbow_x = median(as.numeric(elbow_x), na.rm = TRUE)) %>%
-                as.data.frame()
 
-plot2 <- ggplot(expanded.results[expanded.results$variable == "latent_dim",], 
-                aes(x=as.numeric(value), y = -log10(as.numeric(score)))) + 
-            geom_smooth(aes(color = group, group = group), lwd = 0.5, alpha = 0.7) + 
-            facet_grid(.~approach) + 
-            geom_vline(data = elbow.point, 
-                       aes(xintercept = median_elbow_x), 
-                       linetype = "dashed") + 
-            geom_text(data = elbow.point, 
-                    aes(x = median_elbow_x, 
-                        y = -1, 
-                        label = median_elbow_x), 
-                    angle = 90, 
-                    vjust = -0.5, 
-                    color = "black", 
-                    size = 3) + 
-            ylab("-log10(mean_squared_error)") + 
-            xlab("Latent Dimension Size") + 
-            scale_color_viridis(discrete = TRUE) + 
-            ylim(-2.5,5) + 
-            theme_clean() + 
-            scale_x_continuous(trans='log2') + 
-            theme(panel.grid.major = element_blank(), 
-                  panel.grid.minor = element_blank(),
-                  panel.background = element_rect(colour = "black", linewidth =1)) 
+
 
 plot1 + plot2 + plot_layout(guides = "collect", ncol = 2)
 ggsave("./outputs/Figure1/Figure1D.pdf", height = 3, width = 10)
