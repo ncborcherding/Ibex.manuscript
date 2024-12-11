@@ -1,10 +1,9 @@
 ---
-138*---
 title: "Figure 1"
 author: "Nick Borcherding"
 format: html
 editor: visual
-date: "7/23/24"
+date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
 ---
 
 ## Loading Libraries & Functions
