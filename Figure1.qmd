@@ -18,8 +18,6 @@ library(ggplot2)
 library(ggthemes)
 library(ggpubr)
 library(patchwork)
-
-source("R/findElbowPoint.R")
 ```
 
 ## Loading Prelimnary Tuning Data
@@ -171,8 +169,8 @@ expanded.results$group <- str_split(expanded.results$model, "_", simplify = TRUE
 #Ordering Grouping variable
 expanded.results$group <- factor(expanded.results$group, levels = c("L1.CNN", "L2.CNN", "L3.CNN",  "L1.VAE", "L2.VAE","L3.VAE"))
 
-expanded.results <- expanded.results %>%
-                      filter(as.numeric(score) < 10) 
+#expanded.results <- expanded.results %>%
+#                      filter(as.numeric(score) < 10) 
 
 
 scaled_results <- expanded.results %>%
