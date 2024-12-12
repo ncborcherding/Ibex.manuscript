@@ -295,7 +295,7 @@ plot1 <- refined.results %>%
               ggplot(aes(y = method, x = as.factor(epoch_number))) + 
               geom_tile(aes(fill = mean_E_Stop), color = "white") +  # Use the median as fill
               scale_fill_viridis() + 
-             labs(fill = "Mean Trials with Early Stop") +
+             labs(fill = "Mean Early Stop") +
               theme_clean() +
               facet_grid(.~arch) + 
               theme(axis.title = element_blank(),
@@ -313,10 +313,11 @@ plot2 <- refined.results %>%
               ggplot(aes(y = method, x = as.factor(batch_size))) + 
               geom_tile(aes(fill = mean_E_Stop), color = "white") +  # Use the median as fill
               scale_fill_viridis() + 
-              labs(fill = "Mean Trials with Early Stop") +
+              labs(fill = "Mean Early Stop") +
               theme_clean() +
               facet_grid(.~arch) + 
               theme(axis.title = element_blank(),
+                    axis.text.y = element_blank(),
                     legend.position = "bottom",
                     legend.key.height = unit(0.6, "cm"),  
                     legend.key.width = unit(0.35, "cm"),   
@@ -332,10 +333,11 @@ plot3 <- refined.results %>%
               ggplot(aes(y = method, x = as.factor(learning_rate))) + 
               geom_tile(aes(fill = mean_E_Stop), color = "white") + 
               scale_fill_viridis() + 
-              labs(fill = "Mean Trials with Early Stop") +
+              labs(fill = "Mean Early Stop") +
               theme_clean() +
               facet_grid(.~arch) + 
               theme(axis.title = element_blank(),
+                    axis.text.y = element_blank(),
                     legend.position = "bottom",
                     legend.key.height = unit(0.6, "cm"),  
                     legend.key.width = unit(0.35, "cm"),   
