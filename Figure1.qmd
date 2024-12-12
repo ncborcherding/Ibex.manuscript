@@ -276,7 +276,7 @@ refined.results <- do.call(rbind, total.results)
 refined.results$overall.model <- paste0(refined.results$method)
 refined.results$approach <- ifelse(refined.results$method == "OHE", "OHE", "AAP")
 refined.results$group <- str_split(refined.results$model, "_", simplify = TRUE)[,1]
-refined.results$final.class <- paste0(refined.results$overall.model, "_", refined.results$learning_rate, "_", refined.results$batch_size, "_", refined.results$epoch_number)
+refined.results$final.class <- paste0(refined.results$arch, "_", refined.results$overall.model, "_", refined.results$learning_rate, "_", refined.results$batch_size, "_", refined.results$epoch_number)
 
 #Ordering Grouping variable
 refined.results$group <- factor(refined.results$group, levels = c("L1.CNN", "L2.CNN", "L3.CNN",  "L1.VAE", "L2.VAE","L3.VAE"))
@@ -290,66 +290,64 @@ refined.results <- refined.results %>%
                     mutate(E.Stop = as.numeric(epoch_number) - as.numeric(epoch))
 
 plot1 <- refined.results %>%
-            ggplot(aes(x = as.factor(batch_size), y = -log10(value))) + 
-            geom_boxplot(aes(fill = arch)) + 
-             stat_compare_means(method = "anova", label.x.npc = "center") + 
-            facet_grid(.~approach) + 
-            ylab("Early Stop Epochs") + 
-            scale_fill_viridis(discrete = TRUE) + 
-            xlab("Batch Size") + 
-            theme_clean()
-
+              group_by(method, epoch_number, arch) %>%  # Group by method and epoch_number
+              summarize(mean_E_Stop = mean(E.Stop, na.rm = TRUE), .groups = 'drop') %>%  # Calculate median
+              ggplot(aes(y = method, x = as.factor(epoch_number))) + 
+              geom_tile(aes(fill = mean_E_Stop), color = "white") +  # Use the median as fill
+              scale_fill_viridis() + 
+             labs(fill = "Mean Trials with Early Stop") +
+              theme_clean() +
+              facet_grid(.~arch) + 
+              theme(axis.title = element_blank(),
+                    legend.position = "bottom",
+                    legend.key.height = unit(0.6, "cm"),  
+                    legend.key.width = unit(0.35, "cm"),   
+                    panel.grid = element_blank(),         
+                    axis.ticks = element_blank(), 
+                    legend.background = element_blank(), 
+                    plot.background = element_rect(color = NA)) 
+             
 plot2 <- refined.results %>%
-            ggplot(aes(x = as.factor(batch_size), y = E.Stop)) + 
-            geom_boxplot(aes(fill = arch)) + 
-             stat_compare_means(method = "anova", label.x.npc = "center") + 
-            facet_grid(.~approach) + 
-            ylab("-log10(MSE)") + 
-            scale_fill_viridis(discrete = TRUE) + 
-            xlab("Batch Size") + 
-            theme_clean()
-
+              group_by(method, batch_size, arch) %>%  
+              summarize(mean_E_Stop = mean(E.Stop, na.rm = TRUE), .groups = 'drop') %>%  # Calculate median
+              ggplot(aes(y = method, x = as.factor(batch_size))) + 
+              geom_tile(aes(fill = mean_E_Stop), color = "white") +  # Use the median as fill
+              scale_fill_viridis() + 
+              labs(fill = "Mean Trials with Early Stop") +
+              theme_clean() +
+              facet_grid(.~arch) + 
+              theme(axis.title = element_blank(),
+                    legend.position = "bottom",
+                    legend.key.height = unit(0.6, "cm"),  
+                    legend.key.width = unit(0.35, "cm"),   
+                    panel.grid = element_blank(),         
+                    axis.ticks = element_blank(), 
+                    legend.background = element_blank(), 
+                    plot.background = element_rect(color = NA))            
+             
+              
 plot3 <- refined.results %>%
-            ggplot(aes(x = as.factor(epoch_number), y = -log10(value))) + 
-            geom_boxplot(aes(fill = arch)) + 
-             stat_compare_means(method = "anova", label.x.npc = "center") + 
-            facet_grid(.~approach) + 
-            ylab("-log10(MSE)") + 
-            scale_fill_viridis(discrete = TRUE) + 
-            xlab("Epoch Number") + 
-            theme_clean()
+              group_by(method, learning_rate, arch) %>%  
+              summarize(mean_E_Stop = mean(E.Stop, na.rm = TRUE), .groups = 'drop') %>%  
+              ggplot(aes(y = method, x = as.factor(learning_rate))) + 
+              geom_tile(aes(fill = mean_E_Stop), color = "white") + 
+              scale_fill_viridis() + 
+              labs(fill = "Mean Trials with Early Stop") +
+              theme_clean() +
+              facet_grid(.~arch) + 
+              theme(axis.title = element_blank(),
+                    legend.position = "bottom",
+                    legend.key.height = unit(0.6, "cm"),  
+                    legend.key.width = unit(0.35, "cm"),   
+                    panel.grid = element_blank(),         
+                    axis.ticks = element_blank(), 
+                    legend.background = element_blank(), 
+                    plot.background = element_rect(color = NA)) 
 
-plot4 <- refined.results %>%
-            ggplot(aes(x = as.factor(epoch_number), y = E.Stop)) + 
-            geom_boxplot(aes(fill = arch)) + 
-             stat_compare_means(method = "anova", label.x.npc = "center") + 
-            facet_grid(.~approach) + 
-            ylab("Early Stop Epochs") + 
-            scale_fill_viridis(discrete = TRUE) + 
-            xlab("Epoch Number") + 
-            theme_clean()
 
-plot5 <- refined.results %>%
-            ggplot(aes(x = as.factor(learning_rate), y = -log10(value))) + 
-            geom_boxplot(aes(fill = arch)) + 
-            ylab("-log10(MSE)") + 
-            stat_compare_means(method = "anova", label.x.npc = "center") + 
-            facet_grid(.~approach) + 
-            scale_fill_viridis(discrete = TRUE) + 
-            xlab("Learning Rate") + 
-            theme_clean()
 
-plot6 <- refined.results %>%
-            ggplot(aes(x = as.factor(learning_rate), y = E.Stop)) + 
-            geom_boxplot(aes(fill = arch)) + 
-            ylab("Early Stop Epochs") + 
-            stat_compare_means(method = "anova", label.x.npc = "center") + 
-            facet_grid(.~approach) + 
-            scale_fill_viridis(discrete = TRUE) + 
-            xlab("Learning Rate") + 
-            theme_clean()
-
-plot3 + plot4 + plot5 + plot6 + plot_layout(ncol = 1, guides = "collect")
+plot1 + plot2 + plot3 + plot_layout(ncol = 3)
+ggsave("./outputs/Figure1/Figure1F.pdf", height = 4.5, width = 10, dpi = 300)
                       
 ```
 
