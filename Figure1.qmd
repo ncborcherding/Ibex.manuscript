@@ -19,7 +19,7 @@ library(ggpubr)
 library(patchwork)
 ```
 
-## Loading Prelimnary Tuning Data
+## Loading Preliminary Tuning Data
 
 ```{r}
 tuned.results <- list.files("~/Documents/GitHub/Ibex.manuscript/data/tuningRuns/Preliminary", 
@@ -94,7 +94,7 @@ plot2 <- ggplot(scaled_results[tuned.results$variable == "latent_dim",],
           scale_color_viridis(discrete = TRUE) +
           scale_fill_viridis(discrete = TRUE) +
           facet_grid(.~optimizer) + 
-          theme_clean(base_size = 14) +
+          heme_clean(base_size = 14) +
           guides(linetype = "none") + 
           theme(legend.position = "right", 
                 plot.background = element_rect(color = NA))

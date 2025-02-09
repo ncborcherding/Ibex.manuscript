@@ -1,0 +1,169 @@
+---
+title: "Figure 2"
+author: "Nick Borcherding"
+format: html
+editor: visual
+date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
+---
+
+## Loading Libraries & Functions
+
+```{r}
+library(reshape2)
+library(dplyr)
+library(viridis)
+library(stringr)
+library(ggplot2)
+library(ggthemes)
+library(ggpubr)
+library(patchwork)
+```
+
+##  Performance
+
+```{r}
+data_dir <- "~/Documents/GitHub/Ibex.manuscript/data/trainingRuns/modelPerformance"
+
+# List all files in the director
+performance.results <- list.files(data_dir, full.names = TRUE)
+performance.results <- performance.results[-grep("expanded", performance.results)]
+
+# Get the file names without full paths and remove "expanded" entries
+performance.names <- list.files(data_dir)
+performance.names <- performance.names[-grep("expanded", performance.names)]
+performance.names <- str_split(performance.names, "_", simplify = TRUE)
+
+# Read in the RDS files as a list
+performance.list <- lapply(performance.results, readRDS)
+
+
+# Annotate each data frame
+for (i in seq_along(performance.list)) {
+  performance.list[[i]]$chain <- performance.names[i, 2]   
+  performance.list[[i]]$arch <- performance.names[i, 3] 
+  performance.list[[i]]$performancer <- performance.names[i, 4] 
+}
+
+performance.list <- do.call(rbind, performance.list)
+performance.list$mse <- NA
+performance.list$mse[performance.list$arch == "CNN" & performance.list$metric == "loss" ] <- performance.list$value[performance.list$arch == "CNN" & performance.list$metric == "loss" ]
+performance.list$mse[performance.list$arch == "VAE" & performance.list$metric == "mean_squared_error" ] <- performance.list$value[performance.list$arch == "VAE" & performance.list$metric == "mean_squared_error" ]
+
+
+
+ggplot(performance.list, aes(y = mse,
+                             x = epoch)) + 
+  geom_line(aes(color = arch)) + 
+  facet_grid(. ~ arch) + 
+            scale_color_viridis(discrete = TRUE) + 
+            theme_clean()
+  scale_x_log10() + 
+  theme_clean() +   
+  scale_color_viridis(discrete = TRUE) +  
+  scale_fill_viridis(discrete = TRUE) +
+  theme(legend.position = "right",        
+        plot.background = element_rect(color = NA))
+```
+
+## Encoding Time
+
+```{r}
+data_dir <- "~/Documents/GitHub/Ibex.manuscript/data/trainingRuns/encodingTime"
+
+# List all files in the director
+encode.results <- list.files(data_dir, full.names = TRUE)
+encode.results <- encode.results[-grep("expanded", encode.results)]
+
+# Get the file names without full paths and remove "expanded" entries
+encode.names <- list.files(data_dir)
+encode.names <- encode.names[-grep("expanded", encode.names)]
+encode.names <- str_split(encode.names, "_", simplify = TRUE)
+
+# Read in the RDS files as a list
+encode.list <- lapply(encode.results, readRDS)
+encode.list[c(7:24)] <- lapply(encode.list[c(7:24)], function(x) do.call(rbind, x))
+
+
+# Annotate each data frame
+for (i in seq_along(encode.list)) {
+  encode.list[[i]]$chain <- encode.names[i, 2]   
+  encode.list[[i]]$arch <- encode.names[i, 3] 
+  encode.list[[i]]$encoder <- encode.names[i, 4] 
+}
+
+encode.list <- do.call(rbind, encode.list)
+
+library(ggplot2)
+library(dplyr)
+
+ggplot(encode.list, aes(x = sample_size,
+                        y = time_taken)) + 
+  geom_jitter(alpha = 0.5, aes(color = encoder)) +   # Scatter plot with some transparency
+  geom_smooth(method = "loess", se = FALSE, color = "black", 
+              size = 0.5, linetype = "dashed") +  
+  scale_x_log10() + 
+  theme_clean() +   
+  facet_grid(. ~ arch) + 
+  scale_color_viridis(discrete = TRUE) +  
+  scale_fill_viridis(discrete = TRUE) +
+  theme(legend.position = "right",        
+        plot.background = element_rect(color = NA))
+
+ggsave("./outputs/Figure2/Figure1A.pdf", height = 5, width = 10.5)
+```
+
+## Edit Distance Distributions
+
+```{r}
+data_dir <- "~/Documents/GitHub/Ibex.manuscript/data/trainingRuns/editDistances"
+
+# List all files in the director
+edit.results <- list.files(data_dir, full.names = TRUE)
+edit.results <- edit.results[-grep("expanded", edit.results)]
+
+# Get the file names without full paths and remove "expanded" entries
+edit.names <- list.files(data_dir)
+edit.names <- edit.names[-grep("expanded", edit.names)]
+edit.names <- str_split(edit.names, "_", simplify = TRUE)
+
+# Read in the RDS files as a list
+edit.list <- lapply(edit.results, readRDS)
+
+# Annotate each data frame
+for (i in seq_along(edit.list)) {
+  edit.list[[i]]$chain <- edit.names[i, 2]   
+  edit.list[[i]]$arch <- edit.names[i, 3] 
+  edit.list[[i]]$encoder <- edit.names[i, 4] 
+}
+
+edit.list <- do.call(rbind, edit.list)
+edit.list <- edit.list[edit.list$normalized_edit_distances < 1, ]
+
+# Plot raw edit distances
+plot1 <- ggplot(edit.list, aes(x = edit_distances, 
+                      color = encoder, 
+                      fill = encoder)) + 
+  geom_density(alpha = 0.1, adjust = 5) +   
+  facet_grid(chain ~ arch) +                
+  theme_clean() +                           
+  scale_color_viridis(discrete = TRUE) +  
+  scale_fill_viridis(discrete = TRUE) +
+  theme(legend.position = "right",        
+        plot.background = element_rect(color = NA)) 
+
+# Plot normalized edit distances
+plot2 <- ggplot(edit.list, aes(x = normalized_edit_distances, 
+                      color = encoder, 
+                      fill = encoder)) + 
+  geom_density(alpha = 0.1, adjust = 5) + 
+  facet_grid(chain ~ arch) + 
+  theme_clean() +
+  scale_color_viridis(discrete = TRUE) + 
+  scale_fill_viridis(discrete = TRUE) +
+  theme(legend.position = "right", 
+        plot.background = element_rect(color = NA)) 
+
+plot1 + plot2 + plot_layout(guides = "collect")
+ggsave("./outputs/Figure2/Figure1A.pdf", height = 5, width = 10.5)
+
+```
