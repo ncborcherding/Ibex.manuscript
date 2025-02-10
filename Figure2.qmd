@@ -19,7 +19,7 @@ library(ggpubr)
 library(patchwork)
 ```
 
-##  Performance
+## Performance
 
 ```{r}
 data_dir <- "~/Documents/GitHub/Ibex.manuscript/data/trainingRuns/modelPerformance"
@@ -92,24 +92,53 @@ for (i in seq_along(encode.list)) {
 }
 
 encode.list <- do.call(rbind, encode.list)
+median_stats <- encode.list %>%
+  group_by(encoder, arch, sample_size) %>%
+  summarise(median_time = median(time_taken, na.rm = TRUE),
+            .groups = "drop")
 
-library(ggplot2)
-library(dplyr)
-
-ggplot(encode.list, aes(x = sample_size,
-                        y = time_taken)) + 
-  geom_jitter(alpha = 0.5, aes(color = encoder)) +   # Scatter plot with some transparency
+# Plot with median reference lines
+plot1 <- ggplot(encode.list, aes(x = sample_size, y = time_taken)) + 
+  geom_jitter(alpha = 0.5, aes(color = encoder)) +  # Scatter plot with transparency
   geom_smooth(method = "loess", se = FALSE, color = "black", 
-              size = 0.5, linetype = "dashed") +  
+              size = 0.5, linetype = "dashed") +  # Loess smoothing line
   scale_x_log10() + 
+  
+  # Median intersection points
+  geom_point(data = median_stats, aes(x = sample_size, y = median_time), 
+             size = 3, fill = "black") +
   theme_clean() +   
   facet_grid(. ~ arch) + 
+  guides(color = "none") + 
   scale_color_viridis(discrete = TRUE) +  
   scale_fill_viridis(discrete = TRUE) +
   theme(legend.position = "right",        
-        plot.background = element_rect(color = NA))
+        plot.background = element_rect(color = NA)) 
 
-ggsave("./outputs/Figure2/Figure1A.pdf", height = 5, width = 10.5)
+
+median_stats <- encode.list %>%
+  group_by(encoder, arch, chain) %>%
+  summarise(median_time_per_seq = median(time_taken / sample_size, na.rm = TRUE), .groups = "drop")
+
+
+plot2 <- ggplot(median_stats, aes(x = encoder, 
+                         y = median_time_per_seq, 
+                         fill = encoder)) + 
+  geom_col(position = "dodge") +  #
+  facet_grid(arch ~ chain) +  
+  scale_fill_viridis(discrete = TRUE, direction = -1) +  
+  theme_minimal() +
+  theme(legend.position = "right",
+        axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels for readability
+        plot.background = element_rect(color = NA)) + 
+  scale_x_discrete(limits=rev) + 
+  coord_flip() + 
+  guides(fill = FALSE) + 
+  theme(axis.title = element_blank())
+
+plot1 + plot2 + plot_layout(widths = c(2.5, 1), guides = 'collect')
+ggsave("./outputs/Figure2/Figure2B.pdf", height = 5, width = 10.5)
+
 ```
 
 ## Edit Distance Distributions
@@ -139,31 +168,37 @@ for (i in seq_along(edit.list)) {
 edit.list <- do.call(rbind, edit.list)
 edit.list <- edit.list[edit.list$normalized_edit_distances < 1, ]
 
-# Plot raw edit distances
-plot1 <- ggplot(edit.list, aes(x = edit_distances, 
-                      color = encoder, 
-                      fill = encoder)) + 
-  geom_density(alpha = 0.1, adjust = 5) +   
-  facet_grid(chain ~ arch) +                
-  theme_clean() +                           
-  scale_color_viridis(discrete = TRUE) +  
-  scale_fill_viridis(discrete = TRUE) +
-  theme(legend.position = "right",        
-        plot.background = element_rect(color = NA)) 
-
 # Plot normalized edit distances
-plot2 <- ggplot(edit.list, aes(x = normalized_edit_distances, 
+plot1 <- ggplot(edit.list, aes(x = normalized_edit_distances, 
                       color = encoder, 
                       fill = encoder)) + 
   geom_density(alpha = 0.1, adjust = 5) + 
-  facet_grid(chain ~ arch) + 
+  facet_grid(.~arch) + 
   theme_clean() +
   scale_color_viridis(discrete = TRUE) + 
+  guides(color = "none", "fill" = "none") +
   scale_fill_viridis(discrete = TRUE) +
   theme(legend.position = "right", 
         plot.background = element_rect(color = NA)) 
 
-plot1 + plot2 + plot_layout(guides = "collect")
-ggsave("./outputs/Figure2/Figure1A.pdf", height = 5, width = 10.5)
+median_edit_distances <- edit.list %>%
+  group_by(encoder, arch, chain) %>%
+  summarise(median_norm_edit_dist = median(normalized_edit_distances, na.rm = TRUE), .groups = "drop")
+
+# Create bar chart
+plot2 <- ggplot(median_edit_distances, aes(x = encoder, y = median_norm_edit_dist, fill = encoder)) + 
+  geom_col(position = "dodge",) +  # Bar plot grouped by encoder
+  facet_grid(arch ~ chain) +  # Separate by architecture and chain
+  scale_fill_viridis(discrete = TRUE, direction = -1) +  
+  theme_minimal() +
+  theme(plot.background = element_rect(color = NA)) + 
+  scale_x_discrete(limits=rev) + 
+  coord_flip() + 
+  guides(fill = FALSE) + 
+  theme(axis.title = element_blank())
+
+
+plot1 + plot2 + plot_layout(widths = c(2.5, 1), guides = 'collect')
+ggsave("./outputs/Figure2/Figure2C.pdf", height = 5, width = 10.5)
 
 ```
