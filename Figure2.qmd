@@ -49,20 +49,52 @@ performance.list$mse <- NA
 performance.list$mse[performance.list$arch == "CNN" & performance.list$metric == "loss" ] <- performance.list$value[performance.list$arch == "CNN" & performance.list$metric == "loss" ]
 performance.list$mse[performance.list$arch == "VAE" & performance.list$metric == "mean_squared_error" ] <- performance.list$value[performance.list$arch == "VAE" & performance.list$metric == "mean_squared_error" ]
 
+performance.list <- performance.list[!is.na(performance.list$mse) & performance.list$data != "training",]
 
 
-ggplot(performance.list, aes(y = mse,
-                             x = epoch)) + 
-  geom_line(aes(color = arch)) + 
-  facet_grid(. ~ arch) + 
-            scale_color_viridis(discrete = TRUE) + 
-            theme_clean()
+# Summarize data to get median mse and IQR (optional)
+performance_summary <- performance.list %>%
+  group_by(epoch, chain, arch) %>%
+  summarize(median_mse = median(mse, na.rm = TRUE),
+            q25 = quantile(mse, 0.25, na.rm = TRUE),
+            q75 = quantile(mse, 0.75, na.rm = TRUE),
+            .groups = "drop")
+
+# Plot
+ggplot(performance.list) + 
+  
+  # Add raw data points with transparency
+  geom_point(aes(y = -log10(mse), x = epoch), 
+             alpha = 0.1, size = 1.2, color = "gray") + 
+  
+  # Add IQR ribbon (optional for better summary representation)
+  geom_ribbon(data = performance_summary, 
+              aes(ymin = -log10(q75), ymax = -log10(q25), 
+                  x = epoch, fill = chain), 
+              alpha = 0.3) +
+  
+  # Add median trend line with distinct styling
+  geom_line(data = performance_summary, 
+            aes(y = -log10(median_mse), x = epoch, color = chain), 
+            lty = 2, size = 1.2) + 
+  
+  # Add chain labels to the median trend line
+  geom_text_repel(data = performance_summary %>% filter(epoch == max(epoch)), 
+                   aes(y = -log10(median_mse), x = epoch, 
+                       label = chain), 
+                   size = 5, color = "black", 
+                   hjust = -0.2, segment.color = NA) +  
+  
+  # Facet by architecture type in a better layout
+  facet_wrap(~ arch, ncol = 2) + 
+  
+  # Color and theme improvements
+  scale_color_viridis(discrete = TRUE, option = "D") + 
+  scale_fill_viridis(discrete = TRUE, option = "D") + 
   scale_x_log10() + 
-  theme_clean() +   
-  scale_color_viridis(discrete = TRUE) +  
-  scale_fill_viridis(discrete = TRUE) +
-  theme(legend.position = "right",        
-        plot.background = element_rect(color = NA))
+  guides(fill = "none", color = "none") + theme_clean()
+ggsave("./outputs/Figure2/Figure2A.pdf", height = 5, width = 10.5)
+
 ```
 
 ## Encoding Time
