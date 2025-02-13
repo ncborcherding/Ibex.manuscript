@@ -348,7 +348,7 @@ p <- ggplot(colorbar_df, aes(x = x, y = y, fill = x)) +
   theme(legend.position = "bottom")
 
 # Save the plot
-ggsave("./outputs/Figure2D_heavyLegend.pdf", p, width = 6, height = 1)
+ggsave("./outputs/Figure2/Figure2D_heavyLegend.pdf", p, width = 6, height = 1)
 
 #Light Vgene Legend
 colorbar_df <- data.frame(x = seq(0, 1, length.out = 100), y = 1)
@@ -360,7 +360,7 @@ p <- ggplot(colorbar_df, aes(x = x, y = y, fill = x)) +
   theme(legend.position = "bottom")
 
 # Save the plot
-ggsave("./outputs/Figure2D_lightLegend.pdf", p, width = 6, height = 1)
+ggsave("./outputs/Figure2/Figure2D_lightLegend.pdf", p, width = 6, height = 1)
 
 ```
 
