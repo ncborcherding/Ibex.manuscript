@@ -16,10 +16,13 @@ library(stringr)
 library(ggplot2)
 library(ggthemes)
 library(ggpubr)
+library(ggridges)
+library(Ibex)
 library(patchwork)
+library(scater)
 ```
 
-## Performance
+## Figure 2A: Performance
 
 ```{r}
 data_dir <- "~/Documents/GitHub/Ibex.manuscript/data/trainingRuns/modelPerformance"
@@ -49,55 +52,38 @@ performance.list$mse <- NA
 performance.list$mse[performance.list$arch == "CNN" & performance.list$metric == "loss" ] <- performance.list$value[performance.list$arch == "CNN" & performance.list$metric == "loss" ]
 performance.list$mse[performance.list$arch == "VAE" & performance.list$metric == "mean_squared_error" ] <- performance.list$value[performance.list$arch == "VAE" & performance.list$metric == "mean_squared_error" ]
 
-performance.list <- performance.list[!is.na(performance.list$mse) & performance.list$data != "training",]
+performance.list <- performance.list[!is.na(performance.list$mse),]
 
-
-# Summarize data to get median mse and IQR (optional)
+# Summarize performance data by epoch, chain, arch, data, and performancer
 performance_summary <- performance.list %>%
-  group_by(epoch, chain, arch) %>%
+  group_by(epoch, chain, arch, data, performancer) %>%
   summarize(median_mse = median(mse, na.rm = TRUE),
             q25 = quantile(mse, 0.25, na.rm = TRUE),
             q75 = quantile(mse, 0.75, na.rm = TRUE),
             .groups = "drop")
 
-# Plot
-ggplot(performance.list) + 
+# Plot performance with training vs. validation and encoding approach differentiation
+ggplot(performance_summary, aes(x = epoch, y = -log10(median_mse), 
+                                color = chain, fill = chain, linetype = data)) +
+  geom_line(size = 0.5) +
+  geom_ribbon(aes(ymin = -log10(q75), ymax = -log10(q25)), 
+              alpha = 0.3, color = NA) +
+  facet_grid(performancer ~ arch) +  # Rows: encoding method; Columns: architecture type
+  labs(x = "Epoch (log scale)",
+       y = "-log10(MSE)",
+       linetype = "Data") +
+  #scale_x_log10() +
+  scale_color_viridis(discrete = TRUE, option = "D") +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  guides(color = guide_legend(title = "Chain"), fill = "none") +
+  theme_clean()  + 
+  theme(legend.position = "bottom", 
+        legend.background = element_rect(color = NA)) 
   
-  # Add raw data points with transparency
-  geom_point(aes(y = -log10(mse), x = epoch), 
-             alpha = 0.1, size = 1.2, color = "gray") + 
-  
-  # Add IQR ribbon (optional for better summary representation)
-  geom_ribbon(data = performance_summary, 
-              aes(ymin = -log10(q75), ymax = -log10(q25), 
-                  x = epoch, fill = chain), 
-              alpha = 0.3) +
-  
-  # Add median trend line with distinct styling
-  geom_line(data = performance_summary, 
-            aes(y = -log10(median_mse), x = epoch, color = chain), 
-            lty = 2, size = 1.2) + 
-  
-  # Add chain labels to the median trend line
-  geom_text_repel(data = performance_summary %>% filter(epoch == max(epoch)), 
-                   aes(y = -log10(median_mse), x = epoch, 
-                       label = chain), 
-                   size = 5, color = "black", 
-                   hjust = -0.2, segment.color = NA) +  
-  
-  # Facet by architecture type in a better layout
-  facet_wrap(~ arch, ncol = 2) + 
-  
-  # Color and theme improvements
-  scale_color_viridis(discrete = TRUE, option = "D") + 
-  scale_fill_viridis(discrete = TRUE, option = "D") + 
-  scale_x_log10() + 
-  guides(fill = "none", color = "none") + theme_clean()
-ggsave("./outputs/Figure2/Figure2A.pdf", height = 5, width = 10.5)
-
+ggsave("./outputs/Figure2/Figure2A.pdf", height = 8.5, width = 5)
 ```
 
-## Encoding Time
+## Figure 2B: Encoding Time
 
 ```{r}
 data_dir <- "~/Documents/GitHub/Ibex.manuscript/data/trainingRuns/encodingTime"
@@ -142,8 +128,11 @@ plot1 <- ggplot(encode.list, aes(x = sample_size, y = time_taken)) +
   theme_clean() +   
   facet_grid(. ~ arch) + 
   guides(color = "none") + 
-  scale_color_viridis(discrete = TRUE) +  
-  scale_fill_viridis(discrete = TRUE) +
+  labs(
+       x = "Sample Size",
+       y = "Time Taken (s)") + 
+  scale_color_viridis(discrete = TRUE, direction = -1) +  
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
   theme(legend.position = "right",        
         plot.background = element_rect(color = NA)) 
 
@@ -165,15 +154,15 @@ plot2 <- ggplot(median_stats, aes(x = encoder,
         plot.background = element_rect(color = NA)) + 
   scale_x_discrete(limits=rev) + 
   coord_flip() + 
+  labs(y = "Time per Sequence (s)") + 
   guides(fill = FALSE) + 
-  theme(axis.title = element_blank())
+  theme(axis.title.y = element_blank())
 
 plot1 + plot2 + plot_layout(widths = c(2.5, 1), guides = 'collect')
 ggsave("./outputs/Figure2/Figure2B.pdf", height = 5, width = 10.5)
-
 ```
 
-## Edit Distance Distributions
+## Figure 2C: Edit Distance Distributions
 
 ```{r}
 data_dir <- "~/Documents/GitHub/Ibex.manuscript/data/trainingRuns/editDistances"
@@ -198,39 +187,180 @@ for (i in seq_along(edit.list)) {
 }
 
 edit.list <- do.call(rbind, edit.list)
-edit.list <- edit.list[edit.list$normalized_edit_distances < 1, ]
 
-# Plot normalized edit distances
-plot1 <- ggplot(edit.list, aes(x = normalized_edit_distances, 
-                      color = encoder, 
-                      fill = encoder)) + 
-  geom_density(alpha = 0.1, adjust = 5) + 
-  facet_grid(.~arch) + 
+# Filter out extreme values
+edit.list_filtered <- edit.list %>% filter(normalized_edit_distances < 1)
+
+# Plot 1: Ridgeline Density Plot
+plot1 <- ggplot(edit.list_filtered, aes(x = normalized_edit_distances, y = encoder, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, 
+                               rel_min_height = 0.01, 
+                               alpha = 0.7, 
+                               stat = "binline") +
+  facet_wrap(~ arch) +
+  labs(
+       x = "Normalized Edit Distance",
+       y = "Encoder") +
+  guides(fill = "none") + 
   theme_clean() +
-  scale_color_viridis(discrete = TRUE) + 
-  guides(color = "none", "fill" = "none") +
-  scale_fill_viridis(discrete = TRUE) +
-  theme(legend.position = "right", 
-        plot.background = element_rect(color = NA)) 
+  scale_fill_viridis(option = "D") + 
+  theme(axis.title.y = element_blank(), 
+        plot.background = element_rect(color = NA))
 
-median_edit_distances <- edit.list %>%
+# Plot 2: Bar Chart with Error Bars for Median Edit Distances
+median_edit_distances <- edit.list_filtered %>%
   group_by(encoder, arch, chain) %>%
-  summarise(median_norm_edit_dist = median(normalized_edit_distances, na.rm = TRUE), .groups = "drop")
+  summarise(median_norm_edit = median(normalized_edit_distances, na.rm = TRUE),
+            sd_norm_edit = sd(normalized_edit_distances, na.rm = TRUE),
+            .groups = "drop")
 
-# Create bar chart
-plot2 <- ggplot(median_edit_distances, aes(x = encoder, y = median_norm_edit_dist, fill = encoder)) + 
-  geom_col(position = "dodge",) +  # Bar plot grouped by encoder
-  facet_grid(arch ~ chain) +  # Separate by architecture and chain
-  scale_fill_viridis(discrete = TRUE, direction = -1) +  
-  theme_minimal() +
-  theme(plot.background = element_rect(color = NA)) + 
+plot2 <- ggplot(median_edit_distances, aes(x = encoder, y = median_norm_edit, fill = encoder)) +
+  geom_col(position = "dodge") +
+  geom_point() + 
+  geom_errorbar(aes(ymin = median_norm_edit, ymax = median_norm_edit + sd_norm_edit),
+                width = 0.2, position = position_dodge(width = 0.9)) +
+  facet_grid(arch ~ chain) +
+  labs(
+       x = "Encoder",
+       y = "Median Normalized Edit Distance") +
+  coord_flip() +
+  theme_clean() +
   scale_x_discrete(limits=rev) + 
-  coord_flip() + 
-  guides(fill = FALSE) + 
-  theme(axis.title = element_blank())
+  scale_fill_viridis(discrete = TRUE, direction = -1) +
+  theme(legend.position = "none", 
+        axis.title.y = element_blank(), 
+        plot.background = element_rect(color = NA))
 
-
+# Combine the two plots
 plot1 + plot2 + plot_layout(widths = c(2.5, 1), guides = 'collect')
 ggsave("./outputs/Figure2/Figure2C.pdf", height = 5, width = 10.5)
 
 ```
+## Figure 2D: Visualise Latent Dimensions
+
+```{r}
+
+# Read and preprocess the Seurat object
+SeuratObj <- readRDS(url("https://www.borch.dev/uploads/data/Ibex_FullExample.rds"))
+cell.idx <- which(!is.na(SeuratObj$CTaa))
+SeuratObj <- subset(SeuratObj, cells = rownames(SeuratObj[[]])[cell.idx])
+SeuratObj$HeavyV <- str_split(SeuratObj$CTgene, "[.]", simplify = TRUE)[,1]
+SeuratObj$Isotype <- str_split(SeuratObj$CTgene, "[.]", simplify = TRUE)[,4]
+SeuratObj$LightV <- str_split(SeuratObj$Isotype, "_", simplify = TRUE)[,2]
+SeuratObj$Isotype <- str_split(SeuratObj$Isotype, "_", simplify = TRUE)[,1]
+
+# Define the parameters
+models <- c("OHE", "atchleyFactors", "crucianiProperties", "kideraFactors", "MSWHIM", "tScales")
+chains <- c("Heavy", "Light")
+archs  <- c("VAE", "CNN")
+
+# Create an empty list to store the MDS data frames
+mds_list <- list()
+
+# Loop over each architecture, chain, and model
+for (arch_val in archs) {
+  for (chain_val in chains) {
+    for (model_val in models) {
+      # Construct a unique reduction name
+      reduction_name <- paste0("Ibex.", chain_val, ".", arch_val, ".", model_val)
+      
+      # Run the model to get the latent dimensions (runIbex is assumed to update the Seurat object)
+      SeuratObj <- runIbex(SeuratObj, 
+                           chain = chain_val,
+                           method = "encoder",
+                           encoder.model = arch_val,
+                           encoder.input = model_val, 
+                           reduction.name = reduction_name)
+      
+      # Extract the cell embeddings and calculate MDS
+      emb <- SeuratObj[[reduction_name]]@cell.embeddings
+      MDS_df <- as.data.frame(calculateMDS(t(emb)))
+      
+      # Add annotation columns
+      MDS_df$chain <- chain_val
+      MDS_df$arch <- arch_val
+      MDS_df$model <- model_val
+      if(chain_val == "Heavy") {
+         MDS_df$Vgene <- SeuratObj$HeavyV
+      } else {
+         MDS_df$Vgene <- SeuratObj$LightV
+      }
+      MDS_df$PT <- SeuratObj$orig.ident
+      
+      # Store the result with a unique key
+      key <- paste(arch_val, chain_val, model_val, sep = "_")
+      mds_list[[key]] <- MDS_df
+    }
+  }
+}
+
+# Combine all MDS data into one data frame
+mds_all <- bind_rows(mds_list)
+
+# Split data by chain
+mds_heavy <- mds_all %>% filter(chain == "Heavy")
+mds_light <- mds_all %>% filter(chain == "Light")
+
+# Split data by chain
+mds_heavy <- mds_all %>% filter(chain == "Heavy")
+mds_light <- mds_all %>% filter(chain == "Light")
+
+# Create Heavy chain plot with viridis color scale
+p_heavy <- ggplot(mds_heavy, aes(x = V1, y = V2)) +
+  geom_point(aes(color = Vgene, shape = model), size = 1.5, alpha = 0.8) +
+  facet_wrap(~arch) +
+  scale_color_viridis_d(option = "D") +
+  theme_void() +
+  guides(color = "none") +
+  theme(plot.background = element_rect(color = NA), 
+        axis.title = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.text = element_blank())
+
+
+# Create Light chain plot with inferno color scale
+p_light <- ggplot(mds_light, aes(x = V1, y = V2)) +
+  geom_point(aes(color = Vgene, shape = model), size = 1.5, alpha = 0.8) +
+  facet_wrap(~arch) +
+  scale_color_viridis_d(option = "inferno") +
+  theme_void() +
+  guides(color = "none") + 
+  theme(plot.background = element_rect(color = NA), 
+        axis.title = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.text = element_blank())
+
+# Combine the plots vertically using patchwork
+combined_plot <- p_heavy + p_light + plot_layout(guides = "collect")
+
+
+# Save the combined plot
+ggsave("./outputs/Figure2/Figure2D.pdf", combined_plot, height = 5, width = 20)
+
+
+#Heavy Vgene Legend
+colorbar_df <- data.frame(x = seq(0, 1, length.out = 100), y = 1)
+p <- ggplot(colorbar_df, aes(x = x, y = y, fill = x)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "D") +
+  theme_void() +
+  guides(fill = "none") + 
+  theme(legend.position = "bottom")
+
+# Save the plot
+ggsave("./outputs/Figure2D_heavyLegend.pdf", p, width = 6, height = 1)
+
+#Light Vgene Legend
+colorbar_df <- data.frame(x = seq(0, 1, length.out = 100), y = 1)
+p <- ggplot(colorbar_df, aes(x = x, y = y, fill = x)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "inferno") +
+  theme_void() +
+  guides(fill = "none") + 
+  theme(legend.position = "bottom")
+
+# Save the plot
+ggsave("./outputs/Figure2D_lightLegend.pdf", p, width = 6, height = 1)
+
+```
+
