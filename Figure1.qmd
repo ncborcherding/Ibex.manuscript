@@ -137,7 +137,7 @@ plot4 <- ggplot(scaled_results[tuned.results$variable == "hidden_dim3",],
                           plot.background = element_rect(color = NA))
 
 plot3 + plot4 + plot_layout(guides = "collect", ncol = 1)
-ggsave("./outputs/Supplemental/FigureA.pdf", height = 5.5, width = 10)
+ggsave("./outputs/Supplemental/SuppFigure1.pdf", height = 5.5, width = 10)
 ```
 
 ## Figure 1D

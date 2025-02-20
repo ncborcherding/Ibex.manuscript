@@ -236,6 +236,7 @@ plot1 + plot2 + plot_layout(widths = c(2.5, 1), guides = 'collect')
 ggsave("./outputs/Figure2/Figure2C.pdf", height = 5, width = 10.5)
 
 ```
+
 ## Figure 2D: Visualise Latent Dimensions
 
 ```{r}
@@ -363,4 +364,3 @@ p <- ggplot(colorbar_df, aes(x = x, y = y, fill = x)) +
 ggsave("./outputs/Figure2/Figure2D_lightLegend.pdf", p, width = 6, height = 1)
 
 ```
-

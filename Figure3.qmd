@@ -1,9 +1,9 @@
 ---
 title: "Figure 3"
+author: "Nick Borcherding"
 format: html
 editor: visual
-author: "Nick Borcherding"
-date: "7/23/24"
+date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
 ---
 
 ## Loading Libraries
@@ -15,17 +15,12 @@ library(patchwork)
 library(ggplot2)
 library(viridis)
 library(dplyr)
-library(SingleR)
-library(Azimuth)
-library(scDblFinder)
-library(harmony)
 library(RColorBrewer)
 library(Nebulosa)
 library(mumosa)
 library(Ibex)
 library(stringr)
-
-HPCA <- HumanPrimaryCellAtlasData()
+library(scplotter)
 ```
 
 ## Converting Single-cell Data
@@ -146,158 +141,100 @@ write.csv(tmp, "./data/Benisse/inputs/Kim2022_contigs.csv")
 Ploting UMAP and clusters
 
 ```{r}
-#################
-#Visualizing UMAP
-#################
+SeuratMerge <- readRDS("./data/processed/Kim2022_SeuratObject.rds")
 
-SeuratMerge <- readRDS("./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
+Cluster.Pal <- colorRampPalette(brewer.pal(11, "Paired"))(length(unique(SeuratMerge$leiden_0.18)))
 
-Cluster.Pal <- colorRampPalette(brewer.pal(11, "Paired"))(length(unique(SeuratMerge$RNA_snn_res.0.8)))
+update_geom_defaults("point", list(stroke=0.2))
+CellDimPlot(SeuratMerge, 
+            group_by = "leiden_0.18", 
+            reduction = "umap",
+            label = TRUE,
+            pt.size = 0.1,
+            label_insitu = TRUE,
+            theme = "theme_blank", 
+            raster = FALSE) + 
+  guides(color = "none") + 
+  theme_void()
 
-
-plot3.A <- DimPlot(SeuratMerge, label = TRUE, repel = TRUE, label.size = 6, group.by = "RNA_snn_res.0.8") +
-  scale_color_manual(values = Cluster.Pal) + 
-  theme_void() + 
-  theme(plot.title = element_blank()) + 
-  NoLegend() 
-
-ggsave("./outputs/Figure3/Figure3A.png", plot3.A, height = 4.5, width = 5, dpi = 300)
-
-```
-
-## Supplemental Figure Y
-
-```{r}
-features <- c("CD19", "CD27", "CD79A", "IGHM", "IGHD", "MKI67", "MS4A1", "XBP1")
-DefaultAssay(SeuratMerge) <- "RNA"
-density.plots <- plot_density(SeuratMerge, 
-                              features = features, 
-                              combine = FALSE, 
-                              method = "wkde",
-                              reduction = "umap") 
-
-for(i in seq_along(density.plots)) {
-  density.plots[[i]] <- density.plots[[i]] + 
-                                  labs(title = NULL) + 
-                                  guides(color = F) + 
-                                  theme_void()
-}
-
-
-density.plots[[1]] + density.plots[[2]] + density.plots[[3]] + density.plots[[4]] + 
-          density.plots[[5]] + density.plots[[6]] + density.plots[[7]] + density.plots[[8]] + plot_layout(ncol = 4)
-ggsave("./outputs/Supplemental/FigureY.pdf", height = 9, width = 20)
+ggsave("./outputs/Figure3/Figure3A.png", height = 4.5, width = 5, dpi = 300)
 ```
 
 ## Figure 3B
 
-Plotting the Ag probe density using the Nebulosa
-
 ```{r}
-########################
-#Visualizing BEAM Signal
-########################
+features <- c("CD19", "CD27", "CD79A", "IGHM", "IGHD", "MKI67", "MS4A1", "PRDM1", "XBP1")
+SeuratMerge <- NormalizeData(SeuratMerge)
 
-DefaultAssay(SeuratMerge) <- "BEAM"
+plot_density(SeuratMerge, 
+                features = features) +
+  plot_layout(ncol = 3) & 
+  theme_void() & 
+  theme(legend.position = "none", 
+        plot.title = element_blank(), 
+        plot.subtitle = element_blank(), 
+        strip.text = element_blank(), 
+        plot.margin = margin(10, 10, 20, 10)) 
 
-SeuratMerge  <- NormalizeData(SeuratMerge, 
-                              nomalization.method = "CLR",
-                              margin = 1)
-SeuratMerge  <- ScaleData(SeuratMerge,
-                          use.umi = TRUE)
-
-
-density.plots <- plot_density(SeuratMerge, 
-                              features = rownames(SeuratMerge@assays$BEAM$counts)[c(5,4,2,1)], 
-                              combine = FALSE, 
-                              method = "wkde",
-                              reduction = "umap") 
-
-for(i in seq_along(density.plots)) {
-  density.plots[[i]] <- density.plots[[i]] + 
-                                  labs(title = NULL) + 
-                                  guides(color = F) + 
-                                  theme_void()
-}
-
-
-plot3.B <- density.plots[[1]] + density.plots[[2]] + density.plots[[3]] + density.plots[[4]] + plot_layout(ncol = 4)
-ggsave("./outputs/Figure3/Figure3B.png", plot3.B, height = 4.5, width = 20, dpi = 300)
+ggsave("./outputs/Figure3/Figure3B.png", height = 13.5, width = 15, dpi = 300)
 ```
 
 ## Figure 3C
 
-From [Dugan et al 2021 Methods](https://pubmed.ncbi.nlm.nih.gov/34022127/)
-
--   normalized antigen-probe binding signals, we arbitrarily set a threshold equal to 1 for all normalized probe signals to distinguish probe binding cells as "positive" or "negative."
-
--   Only cells whose top hit probe value was at least two-fold greater than their second hit probe value were clustered into the top hit probe-specific group; others were clustered into the "multi-reactive" group that indicates non-specific cells.
-
--   For samples in which we included separate SARS2 spike and RBD oligo tags, we placed cells positive to both SARS2 spike and SARS2 RBD into the "spike" group.
+Plotting the Spike Specific Sequences
 
 ```{r}
-###############################
-#Assigning Epitope Specificity
-##############################
-
-epitopeMatrix <- as.matrix(SeuratMerge@assays$BEAM$scale.data[1:5,])
-
-lapply(seq_len(ncol(epitopeMatrix)), function(x) {
-  
-  if(sort(epitopeMatrix[,x])[5] > 2*sort(epitopeMatrix[,x])[4] & sort(epitopeMatrix[,x])[5] > 1) {
-    epi <- names(sort(epitopeMatrix[,x]))[5]
-  } else {
-    epi <- NA
-  }
-  epi
-}) -> epitope.assignments
-names(epitope.assignments) <- colnames(epitopeMatrix)
-epitope.assignments <- as.data.frame(do.call(rbind, epitope.assignments))
-colnames(epitope.assignments) <- "Epitope"
-epitope.assignments$Epitope <- stringr::str_split(epitope.assignments$Epitope, "-", simplify = TRUE)[,2]
-epitope.assignments$Epitope[epitope.assignments$Epitope == ""] <- NA
-epitope.assignments$Epitope <- factor(epitope.assignments$Epitope, levels = c("NP", "ORF8", "RBD", "Spike"))
-
-SeuratMerge <- AddMetaData(SeuratMerge, epitope.assignments)
-
-
-
-plot3.C <- DimPlot(SeuratMerge, split.by = "Epitope", pt.size = 1.5, group.by = "RNA_snn_res.0.8") +
-  scale_color_manual(values = Cluster.Pal) + 
-  ggtitle(NULL) + 
-  guides(color = F) + 
- theme(strip.background = element_blank(),
-   strip.text.x = element_blank()) + 
+#Overlaid on UMAP
+CellDimPlot(SeuratMerge,
+  group_by = "leiden_0.18", 
+  reduction = "umap",
+  highlight = 'Spike.Specific == "Yes"',
+  raster = FALSE,
+  theme = "theme_blank"
+) + 
+  guides(color = "none") + 
   theme_void()
+ggsave("./outputs/Figure3/Figure3C.1.png", height = 4.5, width = 5, dpi = 300)
 
-ggsave("./outputs/Figure3/Figure3C.png", plot3.C, height = 4.6, width = 20, dpi = 300)
+#Breakdown by Category
+SeuratMerge$Spike.Specific <- factor(SeuratMerge$Spike.Specific, levels = c("Unknown", "No", "Yes"))
+CellStatPlot(SeuratMerge, 
+             ident = "leiden_0.18",
+             group_by = "Spike.Specific", 
+             frac = "group",
+             swap = TRUE, 
+             position = "stack") +
+  scale_x_discrete(limits = rev) + 
+  guides(fill = "none") + 
+  coord_flip() + 
+  theme(axis.title.y = element_blank())
+ggsave("./outputs/Figure3/Figure3C.2.pdf", height = 3, width = 4.5)
 ```
+
 
 ## Figure 3D
 
 ```{r}
-SeuratMerge$Spike.Specific <- "No"
-SeuratMerge$Spike.Specific[SeuratMerge$Epitope %in% c("Spike", "RBD")] <- "Spike"
+#Isolating V and C Gene Usage from BCR Sequences
 SeuratMerge$Heavy.V <- str_split(SeuratMerge$CTgene, "[.]", simplify = TRUE)[,1]
 SeuratMerge$Light.V <- str_split(str_split(SeuratMerge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,1]
 SeuratMerge$Heavy.C <- str_split(str_split(SeuratMerge$CTgene, "[.]", simplify = TRUE)[,4], "[_]", simplify = TRUE)[,1]
 SeuratMerge$Light.C <- str_split(str_split(SeuratMerge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,3]
 
 SeuratMerge  <- runIbex(SeuratMerge, 
-                    chains = "Heavy",
-                    method = "encoder",
-                    encoder.model = "VAE", 
-                    encoder.input = "AF", 
-                    reduction.name = "Ibex.H.VAE.AF")
-
+                        chains = "Heavy",
+                        method = "encoder",
+                        encoder.model = "VAE", 
+                        encoder.input = "AF", 
+                        reduction.name = "Ibex.H.VAE.AF")
 
 #Light Chain
 SeuratMerge  <- runIbex(SeuratMerge, 
-                    chains = "Light",
-                    method = "encoder",
-                    encoder.model = "VAE", 
-                    encoder.input = "AF", 
-                    reduction.name = "Ibex.L.VAE.AF")
+                        chains = "Light",
+                        method = "encoder",
+                        encoder.model = "VAE", 
+                        encoder.input = "AF", 
+                        reduction.name = "Ibex.L.VAE.AF")
 
 
 reductions <- c("Ibex.H.VAE.AF", "Ibex.L.VAE.AF")
