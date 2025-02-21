@@ -31,7 +31,7 @@ ad <- anndata::read_h5ad('./data/Kim2022/WU368_kim_et_al_nature_2022_gex_b_cells
 #Forming New Seurat Object
 SeuratMerge <- CreateSeuratObject(counts = t(ad$layers[["raw_counts"]]), 
                                   meta.data = ad$obs)
-
+SeuratMerge <- NormalizeData(SeuratMerge)
 #Adding Dimensional Reduction
 
 PCA <- ad$obsm$X_pca
@@ -68,6 +68,12 @@ new.meta.data$Spike.Specific[is.na(new.meta.data$Spike.Specific)] <- "Unknown"
 new.meta.data$Spike.Specific[new.meta.data$Spike.Specific == TRUE] <- "Yes"
 new.meta.data$Spike.Specific[new.meta.data$Spike.Specific == FALSE] <- "No"
 SeuratMerge <- AddMetaData(SeuratMerge, new.meta.data)
+
+#Isolating V and C Gene Usage from BCR Sequences
+SeuratMerge$Heavy.V <- str_split(SeuratMerge$CTgene, "[.]", simplify = TRUE)[,1]
+SeuratMerge$Light.V <- str_split(str_split(SeuratMerge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,1]
+SeuratMerge$Heavy.C <- str_split(str_split(SeuratMerge$CTgene, "[.]", simplify = TRUE)[,4], "[_]", simplify = TRUE)[,1]
+SeuratMerge$Light.C <- str_split(str_split(SeuratMerge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,3]
 
 ####################
 #Attaching BCR data 
@@ -164,7 +170,6 @@ ggsave("./outputs/Figure3/Figure3A.png", height = 4.5, width = 5, dpi = 300)
 
 ```{r}
 features <- c("CD19", "CD27", "CD79A", "IGHM", "IGHD", "MKI67", "MS4A1", "PRDM1", "XBP1")
-SeuratMerge <- NormalizeData(SeuratMerge)
 
 plot_density(SeuratMerge, 
                 features = features) +
@@ -215,11 +220,9 @@ ggsave("./outputs/Figure3/Figure3C.2.pdf", height = 3, width = 4.5)
 ## Figure 3D
 
 ```{r}
-#Isolating V and C Gene Usage from BCR Sequences
-SeuratMerge$Heavy.V <- str_split(SeuratMerge$CTgene, "[.]", simplify = TRUE)[,1]
-SeuratMerge$Light.V <- str_split(str_split(SeuratMerge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,1]
-SeuratMerge$Heavy.C <- str_split(str_split(SeuratMerge$CTgene, "[.]", simplify = TRUE)[,4], "[_]", simplify = TRUE)[,1]
-SeuratMerge$Light.C <- str_split(str_split(SeuratMerge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,3]
+
+models <- c("CNN", "VAE")
+
 
 SeuratMerge  <- runIbex(SeuratMerge, 
                         chains = "Heavy",
