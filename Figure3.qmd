@@ -13,6 +13,7 @@ library(Seurat)
 library(scRepertoire)
 library(patchwork)
 library(ggplot2)
+library(grid)
 library(viridis)
 library(dplyr)
 library(RColorBrewer)
@@ -69,12 +70,6 @@ new.meta.data$Spike.Specific[new.meta.data$Spike.Specific == TRUE] <- "Yes"
 new.meta.data$Spike.Specific[new.meta.data$Spike.Specific == FALSE] <- "No"
 SeuratMerge <- AddMetaData(SeuratMerge, new.meta.data)
 
-#Isolating V and C Gene Usage from BCR Sequences
-SeuratMerge$Heavy.V <- str_split(SeuratMerge$CTgene, "[.]", simplify = TRUE)[,1]
-SeuratMerge$Light.V <- str_split(str_split(SeuratMerge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,1]
-SeuratMerge$Heavy.C <- str_split(str_split(SeuratMerge$CTgene, "[.]", simplify = TRUE)[,4], "[_]", simplify = TRUE)[,1]
-SeuratMerge$Light.C <- str_split(str_split(SeuratMerge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,3]
-
 ####################
 #Attaching BCR data 
 ####################
@@ -101,7 +96,8 @@ BCR.list <- split(BCR, samples.vector)
 
 BCR.combined <- combineBCR(BCR.list, 
                            samples = names(BCR.list), 
-                           removeNA = TRUE)
+                           removeNA = TRUE, 
+                           filterMulti = TRUE)
 saveRDS(BCR.combined, "./data/processed/Processed_BCR.rds")
 
 meta <- SeuratMerge[[]]
@@ -115,6 +111,30 @@ meta$barcode <- barcodes
 
 meta.list <- split(meta, meta$donor)
 SeuratMerge <- combineExpression(meta.list, SeuratMerge)
+
+#Isolating V and C Gene Usage from BCR Sequences
+SeuratMerge$Heavy.V <- str_split(SeuratMerge$CTgene, "[.]", simplify = TRUE)[,1]
+SeuratMerge$Heavy.V <- str_split(SeuratMerge$Heavy.V, "[,]", simplify = TRUE)[,1]
+SeuratMerge$Heavy.V <- str_split(SeuratMerge$Heavy.V, "[*]", simplify = TRUE)[,1]
+
+SeuratMerge$Light.V <- str_split(str_split(SeuratMerge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,1]
+SeuratMerge$Light.V <- str_split(SeuratMerge$Light.V, "[,]", simplify = TRUE)[,1]
+SeuratMerge$Light.V <- str_split(SeuratMerge$Light.V, "[*]", simplify = TRUE)[,1]
+
+SeuratMerge$Heavy.C <- str_split(str_split(SeuratMerge$CTgene, "[.]", simplify = TRUE)[,4], "[_]", simplify = TRUE)[,1]
+SeuratMerge$Light.C <- str_split(str_split(SeuratMerge$CTgene, "[_]", simplify = TRUE)[,2], "[.]", simplify = TRUE)[,3]
+
+###############################
+#Filtering for Ibex Application
+###############################
+
+#Removing Clones with no BCR sequences
+clone.idx <- which(!is.na(SeuratMerge$CTaa))
+SeuratMerge <- subset(SeuratMerge, cells = colnames(SeuratMerge)[clone.idx])
+
+#Removing Clones with Heavy Chain CDR3 > 45
+clone.idx <- which(nchar(str_split(SeuratMerge$CTaa, "_", simplify = TRUE)[,1]) < 45)
+SeuratMerge <- subset(SeuratMerge, cells = colnames(SeuratMerge)[clone.idx])
 
 saveRDS(SeuratMerge, "./data/processed/Kim2022_SeuratObject.rds")
 
@@ -151,7 +171,7 @@ SeuratMerge <- readRDS("./data/processed/Kim2022_SeuratObject.rds")
 
 Cluster.Pal <- colorRampPalette(brewer.pal(11, "Paired"))(length(unique(SeuratMerge$leiden_0.18)))
 
-update_geom_defaults("point", list(stroke=0.2))
+update_geom_defaults("point", list(stroke=0.25))
 CellDimPlot(SeuratMerge, 
             group_by = "leiden_0.18", 
             reduction = "umap",
@@ -179,7 +199,7 @@ plot_density(SeuratMerge,
         plot.title = element_blank(), 
         plot.subtitle = element_blank(), 
         strip.text = element_blank(), 
-        plot.margin = margin(10, 10, 20, 10)) 
+        plot.margin = unit(c(10, 10, 20, 10), "pt"))  
 
 ggsave("./outputs/Figure3/Figure3B.png", height = 13.5, width = 15, dpi = 300)
 ```
@@ -216,68 +236,102 @@ CellStatPlot(SeuratMerge,
 ggsave("./outputs/Figure3/Figure3C.2.pdf", height = 3, width = 4.5)
 ```
 
-
 ## Figure 3D
 
 ```{r}
-
-models <- c("CNN", "VAE")
-
-
 SeuratMerge  <- runIbex(SeuratMerge, 
-                        chains = "Heavy",
+                        chain = "Heavy",
                         method = "encoder",
-                        encoder.model = "VAE", 
-                        encoder.input = "AF", 
-                        reduction.name = "Ibex.H.VAE.AF")
+                        encoder.model = "CNN", 
+                        encoder.input = "atchleyFactors", 
+                        reduction.name = "Ibex.H.CNN.AF")
 
 #Light Chain
 SeuratMerge  <- runIbex(SeuratMerge, 
-                        chains = "Light",
+                        chain = "Light",
                         method = "encoder",
-                        encoder.model = "VAE", 
-                        encoder.input = "AF", 
-                        reduction.name = "Ibex.L.VAE.AF")
+                        encoder.model = "CNN", 
+                        encoder.input = "atchleyFactors", 
+                        reduction.name = "Ibex.L.CNN.AF")
+
+# Identify the Ibex reductions
+reductions <- Reductions(SeuratMerge)[grep("Ibex", Reductions(SeuratMerge))]
 
 
-reductions <- c("Ibex.H.VAE.AF", "Ibex.L.VAE.AF")
+
 for (j in seq_along(reductions)) {
-        if (j ==1) {
-          vgene <- "Heavy.V"
-        } else {
-          vgene <- "Light.V"
-        }
+  # Determine whether to color by Heavy or Light chain usage
+  if (grepl(".H.", reductions[j])) {
+    vgene <- "Heavy.V"
+    palette <- "viridis"
+  } else {
+    vgene <- "Light.V"
+    palette <- "inferno"
+  }
+# Remove duplicated embeddings 
+non.duplicated.indices <- which(!duplicated(SeuratMerge@reductions[[reductions[j]]]@cell.embeddings))
+  SeuratSubset <- subset(SeuratMerge, cells = colnames(SeuratMerge)[non.duplicated.indices])
+  # Run PHATE directly on the chosen Ibex embeddings
+  phate_result <- phateR::phate(SeuratSubset@reductions[[reductions[j]]]@cell.embeddings)
   
-  non.duplicated <- unique(SeuratMerge@reductions[[reductions[j]]]@cell.embeddings)
-  x <- phateR::phate(non.duplicated, knn = 10)
+  # Convert PHATE output to a DimReduc object
+  phate_object <- CreateDimReducObject(
+    embeddings = phate_result$embedding, 
+    key = "PHATE_", 
+    assay = DefaultAssay(SeuratSubset)
+  )
   
-        
-  #plot.df <- data.frame(barcode = rownames(non.duplicated), x$embedding)
-  plot.df <- data.frame(barcode = rownames(non.duplicated), x)
-  plot.df$patient <- stringr::str_split(plot.df$barcode, "_", simplify = TRUE)[,1]
-  plot.df <- merge(plot.df, SeuratMerge[[]], by.x = 1, by.y = 0)
-  plot.df$Epitope <- as.character(plot.df$Epitope)
-  plot.df$Epitope[which(is.na(plot.df$Epitope))] <- "No"
-  plot.df$Epitope <- factor(plot.df$Epitope, levels = c("NP", "ORF8", "RBD", "Spike", "No"))
-  plot.df$Epitope[which(is.na(plot.df$Epitope))] <- "No"
-        
-  plot1 <- ggplot(plot.df, aes(x = PHATE1, y = PHATE2)) + 
-                    geom_point(aes(color = plot.df[,vgene])) + 
-                    scale_color_viridis(discrete = TRUE) + 
-                    xlim(min(plot.df$PHATE1)*1.25, max(plot.df$PHATE1*1.25)) + 
-                    ylim(min(plot.df$PHATE2)*1.25, max(plot.df$PHATE2)*1.25) + 
-                    guides(color = "none") + 
-                    theme_void()
+  reduction.name <- paste0("Phate.", reductions[j])
+  # Store it as a new reduction called "phate"
+  SeuratSubset[[reduction.name]] <- phate_object
   
-  plot2 <- ggplot(plot.df %>% arrange(desc(Epitope), .by_group = TRUE), aes(x = PHATE1, y = PHATE2)) + 
-                    geom_point(aes(color = Epitope)) + 
-                    scale_color_manual(values = c(viridis_pal()(4), "grey")) + 
-                    xlim(min(plot.df$PHATE1)*1.25, max(plot.df$PHATE1*1.25)) + 
-                    ylim(min(plot.df$PHATE2)*1.25, max(plot.df$PHATE2)*1.25) + 
-                    theme_void()
+  # Now you can use CellDimPlot with reduction = "phate" 
+  plot1 <- CellDimPlot(
+    SeuratSubset,
+    group_by = vgene,
+    reduction = reduction.name,
+    pt.size = 0.1,
+    label_insitu = TRUE,
+    theme = "theme_blank", 
+    raster = FALSE
+  ) + 
+    guides(color = "none") + 
+    scale_color_viridis(discrete = TRUE, option = palette) + 
+    theme_void()
+  
+  ggsave(
+    filename = paste0("./outputs/Figure3/Figure3D_", reductions[j], "_PHATE.png"),
+    plot = plot1,
+    height = 4.5, width = 5,
+    dpi = 600
+  )
+  
+ df <- data.frame(SeuratSubset[[]], SeuratSubset[[reduction.name]]@cell.embeddings)
+phate.names.1 <- colnames(df)[ncol(df)-1]
+phate.names.2 <- colnames(df)[ncol(df)]
 
-  plot1 + plot2 + plot_layout(guides = "collect")
-  ggsave(paste0("./outputs/Figure3/Figure3D_", reductions[j], ".png"), height = 5, width = 10.25, dpi = 600)
+plot1 +
+  stat_density_2d(data = subset(df, Spike.Specific == "Yes"), 
+                 aes(x = .data[[phate.names.1]], 
+                     y = .data[[phate.names.2]], 
+                     fill = after_stat(level), 
+                     alpha = after_stat(level)), 
+                 geom = "polygon", 
+                 bins = 30) + 
+  scale_color_manual(values = rep("lightgrey", length(levels(plot1$data[,vgene])))) + 
+  scale_fill_viridis_c(option = palette) + 
+  guides(fill = "none", alpha = "none") + 
+  #Expanding grid to allow for complete contours
+  xlim(min(df[[phate.names.1]]) - sd(df[[phate.names.1]])/1.5,
+       max(df[[phate.names.1]]) + sd(df[[phate.names.1]])/1.5) + 
+  ylim(min(df[[phate.names.2]]) - sd(df[[phate.names.2]])/1.5,
+       max(df[[phate.names.2]]) + sd(df[[phate.names.2]])/1.5)
+
+   
+  ggsave(
+    filename = paste0("./outputs/Figure3/Figure3D_", reductions[j], "_PHATE_spikeSpecific.png"),
+    height = 4.5, width = 5,
+    dpi = 600)
 }
 ```
 
