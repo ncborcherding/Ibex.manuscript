@@ -18,10 +18,11 @@ library(viridis)
 library(dplyr)
 library(RColorBrewer)
 library(Nebulosa)
-library(mumosa)
+library(MOFA2)
 library(Ibex)
 library(stringr)
 library(scplotter)
+options(future.globals.maxSize= 89128960000)
 ```
 
 ## Converting Single-cell Data
@@ -338,122 +339,59 @@ plot1 +
 ## Figure 3E
 
 ```{r}
-output <- rescaleByNeighbors(
-                  list(SeuratMerge[["Ibex.H.VAE.AF"]]@cell.embeddings,
-                       SeuratMerge[["Ibex.L.VAE.AF"]]@cell.embeddings, 
-                       SeuratMerge[["pca"]]@cell.embeddings))
+corrected.pca <- HarmonyMatrix(SeuratMerge@reductions$pca@cell.embeddings, 
+                               meta_data = SeuratMerge[[]], 
+                               vars_use = "sample")
 
-phate_output <- phateR::phate(output)
+Heavy <- t(SeuratMerge[["Ibex.H.CNN.AF"]]@cell.embeddings)
+Heavy <- Heavy[which(rowSums(Heavy) != 0),]
+Light = t(SeuratMerge[["Ibex.L.CNN.AF"]]@cell.embeddings)
+Light <- Light[which(rowSums(Light) != 0),]
 
-colnames(output) <- paste0("c_Ibex", seq_len(ncol(output)))
+data_list <- list(Heavy = t(Heavy),
+                  Light = t(Light), 
+                  RNA = corrected.pca)
 
-SeuratMerge[["Trimodal.Embed"]] <- CreateDimReducObject(embeddings = as.matrix(output),
-                                                        stdev = rep(0, ncol(output)),
-                                                        assay = "RNA",
-                                                        key = "Combined",
-                                                        jackstraw = NULL,
-                                                        misc = list())
+design <- matrix(1, ncol = length(data_list), nrow = length(data_list))
+diag(design) <- 0
 
-SeuratMerge[["Trimodal.Phate"]] <- CreateDimReducObject(embeddings = phate_output$embedding,
-                                                        stdev = rep(0, ncol(phate_output$embedding)),
-                                                        assay = "RNA",
-                                                        key = "TPhate",
-                                                        jackstraw = NULL,
-                                                        misc = list())
-
-SeuratMerge <- FindNeighbors(SeuratMerge, 
-                             reduction = "Trimodal.Embed", 
-                             dims = 1:100, 
-                             graph.name = c("Ibex_nn", "Ibex_snn"))
-SeuratMerge <- FindClusters(SeuratMerge,
-                            resolution = 0.3,
-                            graph.name = "Ibex_snn",
-                            algorithm = 4)
-
-#######################################
-#UMAP Comparisons between each approach
-#######################################
-
-plot.df <- data.frame(SeuratMerge[["Trimodal.Phate"]]@cell.embeddings, SeuratMerge[[]])
-plot.df$Epitope[which(is.na(plot.df$Epitope))] <- "No"
-plot.df$Epitope <- factor(plot.df$Epitope, levels = c("NP", "ORF8", "RBD", "Spike", "No"))
-plot.df$Epitope[which(is.na(plot.df$Epitope))] <- "No"
-
-centers = plot.df %>% 
-          group_by(Ibex_snn_res.0.3) %>%
-  summarize(across(c("TPhate_1", "TPhate_2"),~ mean(.x, na.rm = TRUE))) %>%
-          as.data.frame()
-    
-
-Cluster.Pal <- colorRampPalette(brewer.pal(11, "Paired"))(length(unique(SeuratMerge$Ibex_snn_res.0.3)))
-
-        
-plot1 <- ggplot(plot.df, aes(x = TPhate_1, y = TPhate_2)) + 
-                    geom_point(aes(color = Ibex_snn_res.0.3)) + 
-                    geom_text(data = centers, mapping =  aes(x=centers[,2], y = centers[,3], label = Ibex_snn_res.0.3), 
-              color = "black", size = 5) + 
-                    scale_color_manual(values = Cluster.Pal) + 
-                    guides(color = "none") + 
-                    theme_void()
-
-plot2 <- ggplot(plot.df %>% arrange(desc(Epitope)), aes(x = TPhate_1, y = TPhate_2)) + 
-                    geom_point(aes(color = Epitope)) + 
-                    scale_color_manual(values = c(viridis_pal()(4), "grey")) +
-                    guides(color = "none") + 
-                    theme_void()
-
-plot1 + plot2
-ggsave(paste0("./outputs/Figure3/Figure3E.png"), height = 5, width = 10, dpi = 600)
-```
-
-Figure 3F
-
-```{r}
-plot1 <- ggplot(subset(plot.df, Epitope != "No"), aes(x = Ibex_snn_res.0.3)) + 
-  geom_bar(aes(fill = Epitope)) + 
-  scale_fill_viridis(discrete = TRUE) + 
-  theme_clean()
-
-plot2 <- ggplot(subset(plot.df, Epitope != "No"), aes(x = Ibex_snn_res.0.3)) + 
-  geom_bar(aes(fill = Epitope), position = "fill") + 
-  scale_fill_viridis(discrete = TRUE) + 
-  theme_clean()
-
-plot1 + plot2 +plot_layout(ncol = 1, guides = "collect")
-ggsave(paste0("./outputs/Figure3/Figure3F.png"), height = 5, width = 10, dpi = 600)
+rgcca_res <- rgcca(data_list, connection = design, ncomp = 5, verbose = TRUE)
+integrated.values <- do.call(cbind, rgcca_res$Y)
+colnames(integrated.values) <- paste("mm_", seq_len(ncol(integrated.values)))
+phate_output <- phateR::phate(integrated.values)
 
 
-plot1 <- ggplot(subset(plot.df, RNA_snn_res.0.8 %in% c(4,6,7,8,12)), aes(x = TPhate_1, y = TPhate_2)) + 
-                    geom_point(aes(color = Ibex_snn_res.0.3)) + 
-                    geom_text(data = centers, mapping =  aes(x=centers[,2], y = centers[,3], label = Ibex_snn_res.0.3), 
-              color = "black", size = 5) + 
-                    scale_color_manual(values = Cluster.Pal) + 
-                    guides(color = "none") + 
-                    theme_void()
 
-plot2 <- ggplot(subset(plot.df, RNA_snn_res.0.8 %in% c(4,6,7,8,12)) %>% arrange(desc(Epitope)), aes(x = TPhate_1, y = TPhate_2)) + 
-                    geom_point(aes(color = Epitope)) + 
-                    scale_color_manual(values = c(viridis_pal()(4), "grey")) +
-                    guides(color = "none") + 
-                    theme_void()
+SeuratMerge[["mm.integrated"]] <- 
+  CreateDimReducObject(embeddings = integrated.values,
+                       stdev = rep(0, ncol(integrated.values)),
+                       assay = "RNA",
+                       key = "mm",
+                       jackstraw = NULL,
+                       misc = list())
 
-plot1 + plot2
-ggsave(paste0("./outputs/Supplemental/FigureB_1.png"), height = 5, width = 10, dpi = 600)
+SeuratMerge[["mm.phate"]] <- 
+  CreateDimReducObject(embeddings = phate_output$embedding,
+                       stdev = rep(0, ncol(phate_output$embedding)),
+                       assay = "RNA",
+                       key = "mm",
+                       jackstraw = NULL,
+                       misc = list())
 
+SeuratMerge <- RunUMAP(SeuratMerge, 
+                       reduction = "mm.integrated", 
+                       dims = 1:5, 
+                       reduction.name = "mm.umap")
 
-plot1 <- ggplot(subset(plot.df, Epitope != "No" & RNA_snn_res.0.8 %in% c(4,6,7,8,12) ), aes(x = Ibex_snn_res.0.3)) + 
-  geom_bar(aes(fill = Epitope)) + 
-  scale_fill_viridis(discrete = TRUE) + 
-  theme_clean()
-
-plot2 <- ggplot(subset(plot.df, Epitope != "No" & RNA_snn_res.0.8 %in% c(4,6,7,8,12) ), aes(x = Ibex_snn_res.0.3)) + 
-  geom_bar(aes(fill = Epitope), position = "fill") + 
-  scale_fill_viridis(discrete = TRUE) + 
-  theme_clean()
-
-plot1 + plot2 +plot_layout(ncol = 1, guides = "collect")
-ggsave(paste0("./outputs/Supplemental/FigureB_2.png"), height = 5, width = 10, dpi = 600)
-
+CellDimPlot(SeuratMerge, 
+            group_by = "sample", 
+            dims = c(2,4),
+            reduction = "mm.phate",
+            pt.size = 0.1,
+            theme = "theme_blank", 
+            raster = FALSE) + 
+  guides(color = "none") + 
+  theme_void()
 
 ```
 
