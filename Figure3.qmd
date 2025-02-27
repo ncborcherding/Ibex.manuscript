@@ -362,7 +362,7 @@ phate_output <- phateR::phate(integrated.values)
 
 
 
-SeuratMerge[["mm.integrated"]] <- 
+SeuratMerge[["cca.integrated"]] <- 
   CreateDimReducObject(embeddings = integrated.values,
                        stdev = rep(0, ncol(integrated.values)),
                        assay = "RNA",
@@ -370,7 +370,7 @@ SeuratMerge[["mm.integrated"]] <-
                        jackstraw = NULL,
                        misc = list())
 
-SeuratMerge[["mm.phate"]] <- 
+SeuratMerge[["cca.phate"]] <- 
   CreateDimReducObject(embeddings = phate_output$embedding,
                        stdev = rep(0, ncol(phate_output$embedding)),
                        assay = "RNA",
@@ -378,15 +378,10 @@ SeuratMerge[["mm.phate"]] <-
                        jackstraw = NULL,
                        misc = list())
 
-SeuratMerge <- RunUMAP(SeuratMerge, 
-                       reduction = "mm.integrated", 
-                       dims = 1:5, 
-                       reduction.name = "mm.umap")
-
 CellDimPlot(SeuratMerge, 
             group_by = "sample", 
             dims = c(2,4),
-            reduction = "mm.phate",
+            reduction = "cca.phate",
             pt.size = 0.1,
             theme = "theme_blank", 
             raster = FALSE) + 
