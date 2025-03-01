@@ -22,6 +22,10 @@ library(MOFA2)
 library(Ibex)
 library(stringr)
 library(scplotter)
+library(SNFtool)
+library(RGCCA)
+library(FactoMineR)
+library(harmony)
 options(future.globals.maxSize= 89128960000)
 ```
 
@@ -334,6 +338,8 @@ plot1 +
     height = 4.5, width = 5,
     dpi = 600)
 }
+rm(SeuratSubset)
+gc()
 ```
 
 ## Figure 3E
@@ -351,6 +357,10 @@ Light <- Light[which(rowSums(Light) != 0),]
 data_list <- list(Heavy = t(Heavy),
                   Light = t(Light), 
                   RNA = corrected.pca)
+
+############################################
+#Generalized Canonical Correlation Analysis
+###########################################
 
 design <- matrix(1, ncol = length(data_list), nrow = length(data_list))
 diag(design) <- 0
@@ -378,10 +388,127 @@ SeuratMerge[["cca.phate"]] <-
                        jackstraw = NULL,
                        misc = list())
 
+###########################
+#Multiple Factor Analysis
+###########################
+
+# Concatenate modalities
+combined_data <- cbind(t(Heavy), t(Light), corrected.pca)
+
+# Define group sizes: e.g., 50 for RNA, 128 for BCR1, 128 for BCR2
+group <- c(ncol(t(Heavy)), ncol(t(Light)), ncol(corrected.pca))
+
+# Run MFA; ncp is the number of common dimensions to keep
+mfa_res <- MFA(combined_data, group = group, type = rep("s", length(group)), ncp = 20)
+
+# Extract integrated factors
+integrated_matrix <- mfa_res$ind$coord
+
+phate_output <- phateR::phate(integrated_matrix)
+
+SeuratMerge[["mfa.integrated"]] <- 
+  CreateDimReducObject(embeddings = integrated_matrix,
+                       stdev = rep(0, ncol(integrated_matrix)),
+                       assay = "RNA",
+                       key = "mm",
+                       jackstraw = NULL,
+                       misc = list())
+
+SeuratMerge[["mfa.phate"]] <- 
+  CreateDimReducObject(embeddings = phate_output$embedding,
+                       stdev = rep(0, ncol(phate_output$embedding)),
+                       assay = "RNA",
+                       key = "mm",
+                       jackstraw = NULL,
+                       misc = list())
+
+###########################
+#Similarity Network Fusion 
+###########################
+
+Heavy <- t(SeuratMerge[["Ibex.H.CNN.AF"]]@cell.embeddings)
+Heavy <- Heavy[which(rowSums(Heavy) != 0),]
+Light = t(SeuratMerge[["Ibex.L.CNN.AF"]]@cell.embeddings)
+Light <- Light[which(rowSums(Light) != 0),]
+
+
+# Compute distance matrices and then affinity matrices for each modality
+dist_rna   <- as.matrix(dist(corrected.pca))
+dist_bcr1  <- as.matrix(dist(Heavy))
+dist_bcr2  <- as.matrix(dist(Light))
+
+# Convert distances to affinities; adjust K and sigma as needed
+W1 <- affinityMatrix(dist_rna,  K = 20, sigma = 0.5)
+W2 <- affinityMatrix(dist_bcr1, K = 20, sigma = 0.5)
+W3 <- affinityMatrix(dist_bcr2, K = 20, sigma = 0.5)
+
+# Fuse the affinity matrices into one network
+fused_W <- SNF(list(W1, W2, W3), K = 20)
+
+# Apply a diffusion or spectral embedding to the fused network
+# Here, for example, using a diffusion map approach:
+dm <- diffuse(fused_W, t = 1)
+integrated_matrix <- dm  # dm typically gives you the eigenvectors
+phate_output <- phateR::phate(integrated_matrix)
+
+SeuratMerge[["snf.integrated"]] <- 
+  CreateDimReducObject(embeddings = integrated_matrix,
+                       stdev = rep(0, ncol(integrated_matrix)),
+                       assay = "RNA",
+                       key = "mm",
+                       jackstraw = NULL,
+                       misc = list())
+
+SeuratMerge[["snf.phate"]] <- 
+  CreateDimReducObject(embeddings = phate_output$embedding,
+                       stdev = rep(0, ncol(phate_output$embedding)),
+                       assay = "RNA",
+                       key = "mm",
+                       jackstraw = NULL,
+                       misc = list())
+
 CellDimPlot(SeuratMerge, 
             group_by = "sample", 
-            dims = c(2,4),
             reduction = "cca.phate",
+            pt.size = 0.1,
+            theme = "theme_blank", 
+            raster = FALSE) + 
+  guides(color = "none") + 
+  theme_void()
+
+CellDimPlot(SeuratMerge,
+  group_by = "leiden_0.18", 
+  reduction = "cca.phate",
+  highlight = 'Spike.Specific == "Yes"',
+  raster = FALSE,
+  theme = "theme_blank"
+) + 
+  guides(color = "none") + 
+  theme_void()
+
+CellDimPlot(SeuratMerge, 
+            group_by = "sample", 
+            reduction = "mfa.phate",
+            pt.size = 0.1,
+            theme = "theme_blank", 
+            raster = FALSE) + 
+  guides(color = "none") + 
+  theme_minimal()
+
+
+CellDimPlot(SeuratMerge,
+  group_by = "leiden_0.18", 
+  reduction = "mfa.phate",
+  highlight = 'Spike.Specific == "Yes"',
+  raster = FALSE,
+  theme = "theme_blank"
+) + 
+  guides(color = "none") + 
+  theme_void()
+
+CellDimPlot(SeuratMerge, 
+            group_by = "sample", 
+            reduction = "snf.phate",
             pt.size = 0.1,
             theme = "theme_blank", 
             raster = FALSE) + 
