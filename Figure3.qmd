@@ -26,6 +26,8 @@ library(SNFtool)
 library(RGCCA)
 library(FactoMineR)
 library(harmony)
+library(Matrix)
+library(RANN)
 options(future.globals.maxSize= 89128960000)
 ```
 
@@ -431,41 +433,81 @@ Heavy <- Heavy[which(rowSums(Heavy) != 0),]
 Light = t(SeuratMerge[["Ibex.L.CNN.AF"]]@cell.embeddings)
 Light <- Light[which(rowSums(Light) != 0),]
 
+# Set the number of nearest neighbors and sigma for the Gaussian kernel
+K <- 20
+sigma <- 0.5
 
-# Compute distance matrices and then affinity matrices for each modality
-dist_rna   <- as.matrix(dist(corrected.pca))
-dist_bcr1  <- as.matrix(dist(Heavy))
-dist_bcr2  <- as.matrix(dist(Light))
+# Function to compute a sparse affinity matrix using kNN distances
+compute_affinity_sparse <- function(data, K = 20, sigma = 0.5) {
+  # data: cells x features (each row is a cell)
+  # Use RANN to compute K+1 neighbors (first neighbor is the cell itself)
+  nn_out <- nn2(data, k = K + 1)
+  
+  # Remove the first column (self-distance = 0)
+  nn_idx <- nn_out$nn.idx[, -1]
+  nn_dists <- nn_out$nn.dists[, -1]
+  
+  # Compute affinities using a Gaussian kernel
+  affinities <- exp(- (nn_dists^2) / (2 * sigma^2))
+  
+  # Build a sparse matrix: for each cell, assign affinity values only for its K neighbors
+  n <- nrow(data)
+  rows <- rep(seq_len(n), each = K)
+  cols <- as.vector(t(nn_idx))
+  vals <- as.vector(t(affinities))
+  
+  # Create the sparse affinity matrix
+  W <- sparseMatrix(i = rows, j = cols, x = vals, dims = c(n, n))
+  # Symmetrize the matrix by averaging with its transpose
+  W <- (W + t(W)) / 2
+  return(W)
+}
 
-# Convert distances to affinities; adjust K and sigma as needed
-W1 <- affinityMatrix(dist_rna,  K = 20, sigma = 0.5)
-W2 <- affinityMatrix(dist_bcr1, K = 20, sigma = 0.5)
-W3 <- affinityMatrix(dist_bcr2, K = 20, sigma = 0.5)
+# Ensure that your matrices have cells as rows.
+# For example, if corrected.pca, Heavy, and Light have cells in rows, you can use them directly.
+# (Double-check with: dim(corrected.pca), dim(Heavy), dim(Light))
 
-# Fuse the affinity matrices into one network
-fused_W <- SNF(list(W1, W2, W3), K = 20)
+# Compute sparse affinity matrices for each modality using kNN
+W1 <- compute_affinity_sparse(corrected.pca, K = K, sigma = sigma)
+W2 <- compute_affinity_sparse(Heavy, K = K, sigma = sigma)
+W3 <- compute_affinity_sparse(Light, K = K, sigma = sigma)
+
+# SNF's SNF() function expects dense matrices. Depending on your memory constraints,
+# you might convert the sparse matrices to dense. (This dense conversion is the next bottleneck.)
+W1_dense <- as.matrix(W1)
+W2_dense <- as.matrix(W2)
+W3_dense <- as.matrix(W3)
+
+# Fuse the affinity matrices
+fused_W <- SNF(list(W1_dense, W2_dense, W3_dense), K = K)
 
 # Apply a diffusion or spectral embedding to the fused network
-# Here, for example, using a diffusion map approach:
-dm <- diffuse(fused_W, t = 1)
-integrated_matrix <- dm  # dm typically gives you the eigenvectors
+dm <- diffuse(fused_W, t = 1)  # 'dm' typically returns eigenvectors
+
+integrated_matrix <- dm  # Use the eigenvectors as the integrated matrix
+
+# Run PHATE on the integrated matrix
 phate_output <- phateR::phate(integrated_matrix)
 
-SeuratMerge[["snf.integrated"]] <- 
-  CreateDimReducObject(embeddings = integrated_matrix,
-                       stdev = rep(0, ncol(integrated_matrix)),
-                       assay = "RNA",
-                       key = "mm",
-                       jackstraw = NULL,
-                       misc = list())
+# (Now add the embeddings back to your Seurat object as before)
+SeuratMerge[["snf.integrated"]] <- CreateDimReducObject(
+  embeddings = integrated_matrix,
+  stdev = rep(0, ncol(integrated_matrix)),
+  assay = "RNA",
+  key = "mm",
+  jackstraw = NULL,
+  misc = list()
+)
 
-SeuratMerge[["snf.phate"]] <- 
-  CreateDimReducObject(embeddings = phate_output$embedding,
-                       stdev = rep(0, ncol(phate_output$embedding)),
-                       assay = "RNA",
-                       key = "mm",
-                       jackstraw = NULL,
-                       misc = list())
+SeuratMerge[["snf.phate"]] <- CreateDimReducObject(
+  embeddings = phate_output$embedding,
+  stdev = rep(0, ncol(phate_output$embedding)),
+  assay = "RNA",
+  key = "mm",
+  jackstraw = NULL,
+  misc = list()
+)
+
 
 CellDimPlot(SeuratMerge, 
             group_by = "sample", 
