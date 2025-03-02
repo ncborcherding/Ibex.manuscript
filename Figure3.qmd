@@ -22,12 +22,12 @@ library(MOFA2)
 library(Ibex)
 library(stringr)
 library(scplotter)
-library(SNFtool)
+library(mixOmics)
+library(MOFA2)
 library(RGCCA)
 library(FactoMineR)
 library(harmony)
 library(Matrix)
-library(RANN)
 options(future.globals.maxSize= 89128960000)
 ```
 
@@ -360,6 +360,38 @@ data_list <- list(Heavy = t(Heavy),
                   Light = t(Light), 
                   RNA = corrected.pca)
 
+#############
+#Running MOFA
+#############
+mofa.object <- create_mofa(
+  list(Heavy = t(SeuratMerge[["Ibex.H.CNN.AF"]]@cell.embeddings),
+       Light = t(SeuratMerge[["Ibex.L.CNN.AF"]]@cell.embeddings),
+       RNA = t(corrected.pca)))
+mofa.object <- prepare_mofa(mofa.object)
+mofa.object <- run_mofa(mofa.object)
+
+integrated.values <- get_factors(model)[[1]]
+
+SeuratMerge[["mofa.integrated"]] <- 
+  CreateDimReducObject(embeddings = integrated.values,
+                       stdev = rep(0, ncol(integrated.values)),
+                       assay = "RNA",
+                       key = "mm",
+                       jackstraw = NULL,
+                       misc = list())
+
+SeuratMerge[["mofa.phate"]] <- 
+  CreateDimReducObject(embeddings = phate_output$embedding,
+                       stdev = rep(0, ncol(phate_output$embedding)),
+                       assay = "RNA",
+                       key = "mm",
+                       jackstraw = NULL,
+                       misc = list())
+
+rm(integrated.value)
+rm(phate_output)
+gc()
+
 ############################################
 #Generalized Canonical Correlation Analysis
 ###########################################
@@ -390,6 +422,9 @@ SeuratMerge[["cca.phate"]] <-
                        jackstraw = NULL,
                        misc = list())
 
+rm(integrated.value)
+rm(phate_output)
+gc()
 ###########################
 #Multiple Factor Analysis
 ###########################
@@ -423,74 +458,23 @@ SeuratMerge[["mfa.phate"]] <-
                        key = "mm",
                        jackstraw = NULL,
                        misc = list())
+rm(integrated_matrix)
+rm(phate_output)
+gc()
 
 ###########################
-#Similarity Network Fusion 
+#Block Partial Least Squares 
 ###########################
 
-Heavy <- t(SeuratMerge[["Ibex.H.CNN.AF"]]@cell.embeddings)
-Heavy <- Heavy[which(rowSums(Heavy) != 0),]
-Light = t(SeuratMerge[["Ibex.L.CNN.AF"]]@cell.embeddings)
-Light <- Light[which(rowSums(Light) != 0),]
+# Run block PLS; ncomp sets the number of latent components to extract.
+block_pls_res <- block.pls(X = data_list, ncomp = 10)
 
-# Set the number of nearest neighbors and sigma for the Gaussian kernel
-K <- 20
-sigma <- 0.5
+# For example, use the latent variables from the RNA block:
+integrated_matrix <- block_pls_res$variates$RNA
 
-# Function to compute a sparse affinity matrix using kNN distances
-compute_affinity_sparse <- function(data, K = 20, sigma = 0.5) {
-  # data: cells x features (each row is a cell)
-  # Use RANN to compute K+1 neighbors (first neighbor is the cell itself)
-  nn_out <- nn2(data, k = K + 1)
-  
-  # Remove the first column (self-distance = 0)
-  nn_idx <- nn_out$nn.idx[, -1]
-  nn_dists <- nn_out$nn.dists[, -1]
-  
-  # Compute affinities using a Gaussian kernel
-  affinities <- exp(- (nn_dists^2) / (2 * sigma^2))
-  
-  # Build a sparse matrix: for each cell, assign affinity values only for its K neighbors
-  n <- nrow(data)
-  rows <- rep(seq_len(n), each = K)
-  cols <- as.vector(t(nn_idx))
-  vals <- as.vector(t(affinities))
-  
-  # Create the sparse affinity matrix
-  W <- sparseMatrix(i = rows, j = cols, x = vals, dims = c(n, n))
-  # Symmetrize the matrix by averaging with its transpose
-  W <- (W + t(W)) / 2
-  return(W)
-}
-
-# Ensure that your matrices have cells as rows.
-# For example, if corrected.pca, Heavy, and Light have cells in rows, you can use them directly.
-# (Double-check with: dim(corrected.pca), dim(Heavy), dim(Light))
-
-# Compute sparse affinity matrices for each modality using kNN
-W1 <- compute_affinity_sparse(corrected.pca, K = K, sigma = sigma)
-W2 <- compute_affinity_sparse(Heavy, K = K, sigma = sigma)
-W3 <- compute_affinity_sparse(Light, K = K, sigma = sigma)
-
-# SNF's SNF() function expects dense matrices. Depending on your memory constraints,
-# you might convert the sparse matrices to dense. (This dense conversion is the next bottleneck.)
-W1_dense <- as.matrix(W1)
-W2_dense <- as.matrix(W2)
-W3_dense <- as.matrix(W3)
-
-# Fuse the affinity matrices
-fused_W <- SNF(list(W1_dense, W2_dense, W3_dense), K = K)
-
-# Apply a diffusion or spectral embedding to the fused network
-dm <- diffuse(fused_W, t = 1)  # 'dm' typically returns eigenvectors
-
-integrated_matrix <- dm  # Use the eigenvectors as the integrated matrix
-
-# Run PHATE on the integrated matrix
-phate_output <- phateR::phate(integrated_matrix)
 
 # (Now add the embeddings back to your Seurat object as before)
-SeuratMerge[["snf.integrated"]] <- CreateDimReducObject(
+SeuratMerge[["bpls.integrated"]] <- CreateDimReducObject(
   embeddings = integrated_matrix,
   stdev = rep(0, ncol(integrated_matrix)),
   assay = "RNA",
@@ -499,7 +483,7 @@ SeuratMerge[["snf.integrated"]] <- CreateDimReducObject(
   misc = list()
 )
 
-SeuratMerge[["snf.phate"]] <- CreateDimReducObject(
+SeuratMerge[["bpls.phate"]] <- CreateDimReducObject(
   embeddings = phate_output$embedding,
   stdev = rep(0, ncol(phate_output$embedding)),
   assay = "RNA",
@@ -508,6 +492,33 @@ SeuratMerge[["snf.phate"]] <- CreateDimReducObject(
   misc = list()
 )
 
+rm(integrated_matrix)
+rm(phate_output)
+gc()
+
+#####################
+#Visualization
+#####################
+
+CellDimPlot(SeuratMerge, 
+            group_by = "sample", 
+            reduction = "mofa.phate",
+            pt.size = 0.1,
+            theme = "theme_blank", 
+            raster = FALSE) + 
+  guides(color = "none")  + 
+  theme_minimal()
+
+CellDimPlot(SeuratMerge,
+  group_by = "leiden_0.18", 
+  reduction = "mofa.phate",
+  highlight = 'Spike.Specific == "Yes"',
+  raster = FALSE,
+  theme = "theme_blank"
+) + 
+  guides(color = "none")  + 
+  theme_minimal()
+
 
 CellDimPlot(SeuratMerge, 
             group_by = "sample", 
@@ -515,8 +526,8 @@ CellDimPlot(SeuratMerge,
             pt.size = 0.1,
             theme = "theme_blank", 
             raster = FALSE) + 
-  guides(color = "none") + 
-  theme_void()
+  guides(color = "none")  + 
+  theme_minimal()
 
 CellDimPlot(SeuratMerge,
   group_by = "leiden_0.18", 
@@ -525,8 +536,8 @@ CellDimPlot(SeuratMerge,
   raster = FALSE,
   theme = "theme_blank"
 ) + 
-  guides(color = "none") + 
-  theme_void()
+  guides(color = "none")  + 
+  theme_minimal()
 
 CellDimPlot(SeuratMerge, 
             group_by = "sample", 
@@ -546,16 +557,26 @@ CellDimPlot(SeuratMerge,
   theme = "theme_blank"
 ) + 
   guides(color = "none") + 
-  theme_void()
+  theme_minimal()
 
 CellDimPlot(SeuratMerge, 
             group_by = "sample", 
-            reduction = "snf.phate",
+            reduction = "bpls.phate",
             pt.size = 0.1,
             theme = "theme_blank", 
             raster = FALSE) + 
+  guides(color = "none")  + 
+  theme_minimal()
+
+CellDimPlot(SeuratMerge,
+  group_by = "leiden_0.18", 
+  reduction = "bpls.phate",
+  highlight = 'Spike.Specific == "Yes"',
+  raster = FALSE,
+  theme = "theme_blank"
+) + 
   guides(color = "none") + 
-  theme_void()
+  theme_minimal()
 
 ```
 
