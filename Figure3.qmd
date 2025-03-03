@@ -370,7 +370,8 @@ mofa.object <- create_mofa(
 mofa.object <- prepare_mofa(mofa.object)
 mofa.object <- run_mofa(mofa.object)
 
-integrated.values <- get_factors(model)[[1]]
+integrated.values <- get_factors(mofa.object)[[1]]
+phate_output <- phateR::phate(integrated.values)
 
 SeuratMerge[["mofa.integrated"]] <- 
   CreateDimReducObject(embeddings = integrated.values,
