@@ -23,9 +23,6 @@ library(Ibex)
 library(stringr)
 library(scplotter)
 library(mixOmics)
-library(MOFA2)
-library(RGCCA)
-library(FactoMineR)
 library(harmony)
 library(Matrix)
 options(future.globals.maxSize= 89128960000)
@@ -347,137 +344,51 @@ gc()
 ## Figure 3E
 
 ```{r}
+# Rerruning PCA to remove IHVDJ genes
+SeuratMerge <- NormalizeData(SeuratMerge, verbose = FALSE)
+SeuratMerge <- FindVariableFeatures(SeuratMerge, verbose = FALSE, nfeatures = 2200)
+SeuratMerge <- quietBCRgenes(SeuratMerge)
+SeuratMerge <- ScaleData(SeuratMerge, verbose = FALSE)
+SeuratMerge <- RunPCA(SeuratMerge, verbose = FALSE)
+
+# Correcting PCA using harmony
 corrected.pca <- HarmonyMatrix(SeuratMerge@reductions$pca@cell.embeddings, 
                                meta_data = SeuratMerge[[]], 
                                vars_use = "sample")
 
+# Forming data list to integrate
 Heavy <- t(SeuratMerge[["Ibex.H.CNN.AF"]]@cell.embeddings)
 Heavy <- Heavy[which(rowSums(Heavy) != 0),]
 Light = t(SeuratMerge[["Ibex.L.CNN.AF"]]@cell.embeddings)
 Light <- Light[which(rowSums(Light) != 0),]
 
-data_list <- list(Heavy = t(Heavy),
-                  Light = t(Light), 
-                  RNA = corrected.pca)
+data_list <- list(RNA = corrected.pca,
+                  Heavy = t(Heavy),
+                  Light = t(Light))
 
-#############
-#Running MOFA
-#############
-mofa.object <- create_mofa(
-  list(Heavy = t(SeuratMerge[["Ibex.H.CNN.AF"]]@cell.embeddings),
-       Light = t(SeuratMerge[["Ibex.L.CNN.AF"]]@cell.embeddings),
-       RNA = t(corrected.pca)))
-mofa.object <- prepare_mofa(mofa.object)
-mofa.object <- run_mofa(mofa.object)
-
-integrated.values <- get_factors(mofa.object)[[1]]
-phate_output <- phateR::phate(integrated.values)
-
-SeuratMerge[["mofa.integrated"]] <- 
-  CreateDimReducObject(embeddings = integrated.values,
-                       stdev = rep(0, ncol(integrated.values)),
-                       assay = "RNA",
-                       key = "mm",
-                       jackstraw = NULL,
-                       misc = list())
-
-SeuratMerge[["mofa.phate"]] <- 
-  CreateDimReducObject(embeddings = phate_output$embedding,
-                       stdev = rep(0, ncol(phate_output$embedding)),
-                       assay = "RNA",
-                       key = "mm",
-                       jackstraw = NULL,
-                       misc = list())
-
-rm(integrated.value)
-rm(phate_output)
-gc()
-
-############################################
-#Generalized Canonical Correlation Analysis
-###########################################
-
-design <- matrix(1, ncol = length(data_list), nrow = length(data_list))
-diag(design) <- 0
-
-rgcca_res <- rgcca(data_list, connection = design, ncomp = 5, verbose = TRUE)
-integrated.values <- do.call(cbind, rgcca_res$Y)
-colnames(integrated.values) <- paste("mm_", seq_len(ncol(integrated.values)))
-phate_output <- phateR::phate(integrated.values)
-
-
-
-SeuratMerge[["cca.integrated"]] <- 
-  CreateDimReducObject(embeddings = integrated.values,
-                       stdev = rep(0, ncol(integrated.values)),
-                       assay = "RNA",
-                       key = "mm",
-                       jackstraw = NULL,
-                       misc = list())
-
-SeuratMerge[["cca.phate"]] <- 
-  CreateDimReducObject(embeddings = phate_output$embedding,
-                       stdev = rep(0, ncol(phate_output$embedding)),
-                       assay = "RNA",
-                       key = "mm",
-                       jackstraw = NULL,
-                       misc = list())
-
-rm(integrated.value)
-rm(phate_output)
-gc()
-###########################
-#Multiple Factor Analysis
-###########################
-
-# Concatenate modalities
-combined_data <- cbind(t(Heavy), t(Light), corrected.pca)
-
-# Define group sizes: e.g., 50 for RNA, 128 for BCR1, 128 for BCR2
-group <- c(ncol(t(Heavy)), ncol(t(Light)), ncol(corrected.pca))
-
-# Run MFA; ncp is the number of common dimensions to keep
-mfa_res <- MFA(combined_data, group = group, type = rep("s", length(group)), ncp = 20)
-
-# Extract integrated factors
-integrated_matrix <- mfa_res$ind$coord
-
-phate_output <- phateR::phate(integrated_matrix)
-
-SeuratMerge[["mfa.integrated"]] <- 
-  CreateDimReducObject(embeddings = integrated_matrix,
-                       stdev = rep(0, ncol(integrated_matrix)),
-                       assay = "RNA",
-                       key = "mm",
-                       jackstraw = NULL,
-                       misc = list())
-
-SeuratMerge[["mfa.phate"]] <- 
-  CreateDimReducObject(embeddings = phate_output$embedding,
-                       stdev = rep(0, ncol(phate_output$embedding)),
-                       assay = "RNA",
-                       key = "mm",
-                       jackstraw = NULL,
-                       misc = list())
-rm(integrated_matrix)
-rm(phate_output)
-gc()
 
 ###########################
 #Block Partial Least Squares 
 ###########################
 
-# Run block PLS; ncomp sets the number of latent components to extract.
-block_pls_res <- block.pls(X = data_list, ncomp = 10)
+block_pls_res <- block.pls(
+  X = data_list,
+  indY = 1,                      
+  ncomp = 10,
+  design = matrix(1, ncol = 3, nrow = 3),  # Equal connection 
+  scheme = "horst",          
+  max.iter = 500)
 
-# For example, use the latent variables from the RNA block:
-integrated_matrix <- block_pls_res$variates$RNA
+# combining the variates from all blocks:
+combined_variates <- (block_pls_res$variates$RNA +
+                      block_pls_res$variates$Light +
+                      block_pls_res$variates$Heavy) / 3
 
+phate_output <- phateR::phate(combined_variates)
 
-# (Now add the embeddings back to your Seurat object as before)
 SeuratMerge[["bpls.integrated"]] <- CreateDimReducObject(
-  embeddings = integrated_matrix,
-  stdev = rep(0, ncol(integrated_matrix)),
+  embeddings = combined_variates,
+  stdev = rep(0, ncol(combined_variates)),
   assay = "RNA",
   key = "mm",
   jackstraw = NULL,
@@ -501,64 +412,6 @@ gc()
 #Visualization
 #####################
 
-CellDimPlot(SeuratMerge, 
-            group_by = "sample", 
-            reduction = "mofa.phate",
-            pt.size = 0.1,
-            theme = "theme_blank", 
-            raster = FALSE) + 
-  guides(color = "none")  + 
-  theme_minimal()
-
-CellDimPlot(SeuratMerge,
-  group_by = "leiden_0.18", 
-  reduction = "mofa.phate",
-  highlight = 'Spike.Specific == "Yes"',
-  raster = FALSE,
-  theme = "theme_blank"
-) + 
-  guides(color = "none")  + 
-  theme_minimal()
-
-
-CellDimPlot(SeuratMerge, 
-            group_by = "sample", 
-            reduction = "cca.phate",
-            pt.size = 0.1,
-            theme = "theme_blank", 
-            raster = FALSE) + 
-  guides(color = "none")  + 
-  theme_minimal()
-
-CellDimPlot(SeuratMerge,
-  group_by = "leiden_0.18", 
-  reduction = "cca.phate",
-  highlight = 'Spike.Specific == "Yes"',
-  raster = FALSE,
-  theme = "theme_blank"
-) + 
-  guides(color = "none")  + 
-  theme_minimal()
-
-CellDimPlot(SeuratMerge, 
-            group_by = "sample", 
-            reduction = "mfa.phate",
-            pt.size = 0.1,
-            theme = "theme_blank", 
-            raster = FALSE) + 
-  guides(color = "none") + 
-  theme_minimal()
-
-
-CellDimPlot(SeuratMerge,
-  group_by = "leiden_0.18", 
-  reduction = "mfa.phate",
-  highlight = 'Spike.Specific == "Yes"',
-  raster = FALSE,
-  theme = "theme_blank"
-) + 
-  guides(color = "none") + 
-  theme_minimal()
 
 CellDimPlot(SeuratMerge, 
             group_by = "sample", 
@@ -578,7 +431,6 @@ CellDimPlot(SeuratMerge,
 ) + 
   guides(color = "none") + 
   theme_minimal()
-
 ```
 
 ## Saving Final File
