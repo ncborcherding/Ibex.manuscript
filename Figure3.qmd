@@ -314,7 +314,7 @@ non.duplicated.indices <- which(!duplicated(SeuratMerge@reductions[[reductions[j
 phate.names.1 <- colnames(df)[ncol(df)-1]
 phate.names.2 <- colnames(df)[ncol(df)]
 
-plot1 +
+plot2 <- plot1 +
   stat_density_2d(data = subset(df, Spike.Specific == "Yes"), 
                  aes(x = .data[[phate.names.1]], 
                      y = .data[[phate.names.2]], 
@@ -334,8 +334,12 @@ plot1 +
    
   ggsave(
     filename = paste0("./outputs/Figure3/Figure3D_", reductions[j], "_PHATE_spikeSpecific.png"),
+    plot = plot2,
     height = 4.5, width = 5,
     dpi = 600)
+  
+  plot1
+  plot2
 }
 rm(SeuratSubset)
 gc()
@@ -391,19 +395,10 @@ block_spls_res <- block.spls(X = data_list,
                              max.iter = 1000)
 
 combined_variates <- cbind(block_spls_res$variates$RNA,
-                                   block_spls_res$variates$Light,
-                                   block_spls_res$variates$Heavy)
+                           block_spls_res$variates$Light,
+                           block_spls_res$variates$Heavy)
 
 phate_output <- phateR::phate(combined_variates)
-
-SeuratMerge[["bpls.integrated"]] <- CreateDimReducObject(
-  embeddings = combined_variates,
-  stdev = rep(0, ncol(combined_variates)),
-  assay = "RNA",
-  key = "mm",
-  jackstraw = NULL,
-  misc = list()
-)
 
 SeuratMerge[["bpls.phate"]] <- CreateDimReducObject(
   embeddings = phate_output$embedding,
@@ -439,12 +434,61 @@ CellDimPlot(SeuratMerge,
 ) + 
   guides(color = "none") + 
   theme_minimal()
+
+plot1 <- CellDimPlot(
+    SeuratMerge,
+    group_by = "leiden_0.18",
+    reduction = "bpls.phate",
+    pt.size = 0.1,
+    label_insitu = TRUE,
+    theme = "theme_blank", 
+    raster = FALSE
+  ) + 
+    guides(color = "none") + 
+    theme_void()
+
+ df <- data.frame(SeuratMerge[[]], SeuratMerge[["bpls.phate"]]@cell.embeddings)
+phate.names.1 <- colnames(df)[ncol(df)-1]
+phate.names.2 <- colnames(df)[ncol(df)]
+
+plot2 <- plot1 +
+  stat_density_2d(data = subset(df, Spike.Specific == "Yes"), 
+                 aes(x = .data[[phate.names.1]], 
+                     y = .data[[phate.names.2]], 
+                     fill = after_stat(level), 
+                     alpha = after_stat(level)), 
+                 geom = "polygon", 
+                 bins = 30) + 
+  scale_color_manual(values = rep("lightgrey", length(levels(plot1$data[,"leiden_0.18"])))) + 
+  scale_fill_viridis() + 
+  guides(fill = "none", alpha = "none") + 
+  #Expanding grid to allow for complete contours
+  xlim(min(df[[phate.names.1]]) - sd(df[[phate.names.1]])/1.5,
+       max(df[[phate.names.1]]) + sd(df[[phate.names.1]])/1.5) + 
+  ylim(min(df[[phate.names.2]]) - sd(df[[phate.names.2]])/1.5,
+       max(df[[phate.names.2]]) + sd(df[[phate.names.2]])/1.5)
+
+ggsave(
+    filename = "./outputs/Figure3/Figure3E_PHATE.png",
+    plot = plot1,
+    height = 4.5, width = 5,
+    dpi = 600
+  )
+
+ggsave(
+    filename = "./outputs/Figure3/Figure3E__PHATE_spikeSpecific.png",
+    plot = plot2,
+    height = 4.5, width = 5,
+    dpi = 600)
+
+plot1
+plot2
 ```
 
 ## Saving Final File
 
 ```{r}
-saveRDS(SeuratMerge, "./data/processed/Dugan2021_BEAM.ab_Recovered_Seurat.rds")
+saveRDS(SeuratMerge, "./data/processed/Kim2022_SeuratObject.rds")
 ```
 
 ## Conclusions
