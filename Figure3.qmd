@@ -371,18 +371,19 @@ data_list <- list(RNA = corrected.pca,
 #Block Partial Least Squares 
 ###########################
 
-block_pls_res <- block.pls(
-  X = data_list,
-  indY = 1,                      
-  ncomp = 10,
-  design = matrix(1, ncol = 3, nrow = 3),  # Equal connection 
-  scheme = "horst",          
-  max.iter = 500)
+keepX = list(RNA = rep(30, 10), Light = rep(30, 10), Heavy = rep(30, 10))
 
-# combining the variates from all blocks:
-combined_variates <- (block_pls_res$variates$RNA +
-                      block_pls_res$variates$Light +
-                      block_pls_res$variates$Heavy) / 3
+block_spls_res <- block.spls(X = data_list,
+                             indY = 2,  
+                             ncomp = 10,
+                             keepX = keepX,
+                             design = matrix(1, ncol = 3, nrow = 3),
+                             scheme = "centroid",
+                             max.iter = 1000)
+
+combined_variates <- cbind(block_spls_res$variates$RNA,
+                                   block_spls_res$variates$Light,
+                                   block_spls_res$variates$Heavy)
 
 phate_output <- phateR::phate(combined_variates)
 
@@ -411,8 +412,6 @@ gc()
 #####################
 #Visualization
 #####################
-
-
 CellDimPlot(SeuratMerge, 
             group_by = "sample", 
             reduction = "bpls.phate",
