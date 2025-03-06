@@ -192,8 +192,8 @@ edit.list <- do.call(rbind, edit.list)
 edit.list_filtered <- edit.list %>% filter(normalized_edit_distances < 1)
 
 # Plot 1: Ridgeline Density Plot
-plot1 <- ggplot(edit.list_filtered, aes(x = normalized_edit_distances, y = encoder, fill = ..x..)) +
-  geom_density_ridges_gradient(scale = 3, 
+plot1 <- ggplot(edit.list_filtered, aes(x = normalized_edit_distances, y = encoder, fill = encoder)) +
+  geom_density_ridges_gradient(scale = 5, 
                                rel_min_height = 0.01, 
                                alpha = 0.7, 
                                stat = "binline") +
@@ -203,7 +203,8 @@ plot1 <- ggplot(edit.list_filtered, aes(x = normalized_edit_distances, y = encod
        y = "Encoder") +
   guides(fill = "none") + 
   theme_clean() +
-  scale_fill_viridis(option = "D") + 
+  scale_y_discrete(limits = rev) + 
+  scale_fill_viridis(option = "D", discrete = TRUE, direction = -1) + 
   theme(axis.title.y = element_blank(), 
         plot.background = element_rect(color = NA))
 
