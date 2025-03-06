@@ -168,7 +168,7 @@ write.csv(tmp, "./data/Benisse/inputs/Kim2022_contigs.csv")
 
 ## Figure 3A
 
-Ploting UMAP and clusters
+Plotting UMAP and clusters
 
 ```{r}
 SeuratMerge <- readRDS("./data/processed/Kim2022_SeuratObject.rds")
@@ -356,6 +356,15 @@ corrected.pca <- HarmonyMatrix(SeuratMerge@reductions$pca@cell.embeddings,
                                meta_data = SeuratMerge[[]], 
                                vars_use = "sample")
 
+SeuratMerge[["harmony.pca"]] <- CreateDimReducObject(
+  embeddings = corrected.pca,
+  stdev = rep(0, ncol(corrected.pca)),
+  assay = "RNA",
+  key = "pca",
+  jackstraw = NULL,
+  misc = list()
+)
+
 # Forming data list to integrate
 Heavy <- t(SeuratMerge[["Ibex.H.CNN.AF"]]@cell.embeddings)
 Heavy <- Heavy[which(rowSums(Heavy) != 0),]
@@ -405,7 +414,7 @@ SeuratMerge[["bpls.phate"]] <- CreateDimReducObject(
   misc = list()
 )
 
-rm(integrated_matrix)
+rm(combined_variates)
 rm(phate_output)
 gc()
 
