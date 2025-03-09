@@ -6,126 +6,268 @@ editor: visual
 date: "7/23/24"
 ---
 
+To DO List
+
+Make List of shared Benisse and Ibex encoding
+
+Assign Spike vs not
+
+Sample 80:20 split data
+
+Traing model run
+
+Tuning model
+
+Loading Libraries
+
+```{r}
+library(Seurat)
+library(stringr)
+library(Ibex)
+library(caret)
+library(pROC)
+```
+
+Defininf Custom Functions
+
+```{r}
+myBinarySummary <- function(data, lev = NULL, model = NULL) {
+
+  # Positive class is assumed to be lev[2]
+  if (length(lev) > 1) {
+    positive_class <- lev[2]
+  } else {
+    positive_class <- lev[1]  # fallback
+  }
+  
+  # Confusion matrix
+  CM <- confusionMatrix(data$pred, data$obs, positive = positive_class)
+  
+  acc  <- CM$overall["Accuracy"]
+  kap  <- CM$overall["Kappa"]
+  # By-class metrics
+  sens <- CM$byClass["Sensitivity"]       # TP / (TP + FN)
+  spec <- CM$byClass["Specificity"]       # TN / (TN + FP)
+  ppv  <- CM$byClass["Pos Pred Value"]    # TP / (TP + FP)
+  npv  <- CM$byClass["Neg Pred Value"]    # TN / (TN + FN)
+  f1   <- CM$byClass["F1"]                # 2 * (PPV * Sens) / (PPV + Sens)
+  
+  out <- c(
+    Accuracy = unname(acc),
+    Kappa    = unname(kap),
+    F1       = unname(f1),
+    PPV      = unname(ppv),
+    NPV      = unname(npv)
+  )
+  
+  return(out)
+}
+```
+
 # Unifying Benisse and Seurat Data
 
 ```{r}
+# Read the Seurat object
 SeuratMerge <- readRDS("./data/processed/Kim2022_SeuratObject.rds")
 
-#Focusing on Spike-Specific Yes/No B Cells
-SeuratMerge <- subset(SeuratMerge, Spike.Specific %in% c("No", "Yes"))
+# Focus on Spike-Specific Yes/No B Cells
+SeuratMerge <- subset(SeuratMerge, subset = Spike.Specific %in% c("Yes", "No"))
 
+# Read the BENISSE results
+Benisse.results <- read.csv("data/Benisse/outputs/Encoded_Kim2022.csv")
 
-Bennise.results <- read.csv("data/Benisse/outputs/Encoded_Kim2022.csv")
+# Extract the metadata (with barcodes in rownames)
+SeuratMeta <- SeuratMerge[[]]  
+barcodes  <- rownames(SeuratMeta)
 
+# Extract the first token (before "_") from the CTaa column to match 'Benisse.results$index'
+IGH.clonotypes <- str_split(SeuratMeta$CTaa, "_", simplify = TRUE)[,1]
 
-SeuratMeta <- SeuratMerge[[]]
-Ibex.IGH <- unique(SeuratMerge@reductions$Ibex.H.VAE.AF@cell.embeddings)
+# Match clonotypes to Benisse.results$index
+match_idx <- match(IGH.clonotypes, Benisse.results$index)
 
-barcodes <- rownames(Ibex.IGH)
-lapply(barcodes, function(x) {
-  idx <- which(Benisse.results$Samples == SeuratMeta[x,]$orig.ident & Benisse.results$index == str_split(SeuratMeta[x,]$CTaa, "_", simplify = TRUE)[,1])
-  idx
-}) -> Benisse.Index
+# Subset and reorder the BENISSE results to match the Seurat barcodes
+Benisse.results.filtered <- Benisse.results[match_idx, -c(1,22)]
 
-#Ordering Benisse Results
-Benisse.Index <- unique(do.call(c, Benisse.Index))
-Benisse.results <- Benisse.results[Benisse.Index,]
+# Give 'Benisse.results.filtered' the same row names as the Seurat object
+rownames(Benisse.results.filtered) <- barcodes
+gc()
+```
 
-barcodes <- rownames(Ibex.IGH)
-lapply(barcodes, function(x) {
-  idx <- which(SeuratMeta[x,]$orig.ident == Benisse.results$Samples  & str_split(SeuratMeta[x,]$CTaa, "_", simplify = TRUE)[,1] == Benisse.results$index)
-  idx
-}) -> Seurat.Index
-Seurat.Index <- unique(do.call(c, Seurat.Index))
-Ibex.IGH <- Ibex.IGH[Seurat.Index,]
-SeuratMeta <- SeuratMeta[Seurat.Index,]
+```{r}
+arch <- c("CNN", "VAE")
+encoders <- c("atchleyFactors", "crucianiProperties", "kideraFactors", "MSWHIM", "tScales", "OHE")
 
-ClusterSweep.Ibex <- clusterSweep(Ibex.IGH, 
-    NNGraphParam(), 
-    k=as.integer(c(5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70)),
-    cluster.fun=c("louvain", "walktrap", "infomap"),
-    BPPARAM=BiocParallel::MulticoreParam(4))
-
-plotSweep(ClusterSweep.Ibex, Ibex.IGH)
-ggsave("./outputs/Supplemental/FigureA_1.pdf", height = 4, width = 8)
-
-ClusterSweep.Benisse <- clusterSweep(Benisse.results[,2:21], 
-    NNGraphParam(), 
-    k=as.integer(c(5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70)),
-    cluster.fun=c("louvain", "walktrap", "infomap"),
-    BPPARAM=BiocParallel::MulticoreParam(4))
-
-
-plotSweep(ClusterSweep.Benisse, Benisse.results[,2:21])
-ggsave("./outputs/Supplemental/FigureA_2.pdf", height = 4, width = 8)
-
-##########################
-#Clustering based on Sweep
-##########################
-myClusterFUN <- function(x, k) {
-    clusterRows(x, BLUSPARAM=NNGraphParam(k=k, cluster.fun="infomap"))
+for(i in seq_along(arch)) {
+  for(j in seq_along(encoders)) {
+    SeuratMerge <- runIbex(SeuratMerge, 
+                           chain = "Heavy",
+                           method = "encoder",
+                           encoder.model = arch[i],
+                           encoder.input = encoders[j], 
+                           reduction.name = paste0("Ibex.H.", arch[i], ".", encoders[j]))
+  }
 }
 
-Cluster.B <- myClusterFUN(Benisse.results[,2:21], 100)
-Cluster.I <- myClusterFUN(Ibex.IGH, 25)
+    SeuratMerge <- runIbex(SeuratMerge, 
+                           chain = "Heavy",
+                           method = "geometric",
+                           geometric.theta = pi/3, 
+                           reduction.name = "Ibex.H.Geometric")
+    
+seurat.reductions <- Reductions(SeuratMerge)[7:19]
 
+IGH.reduction.list <- lapply(seurat.reductions, function(x) {
+                          tmp <- SeuratMerge[[x]]
+                          tmp
+})
 
-
-dimRed.B <- scater::calculateUMAP(t(Benisse.results[,2:21]))
-colnames(dimRed.B) <- paste0("Ben_", colnames(dimRed.B))
-dimRed.I <- scater::calculateUMAP(t(Ibex.IGH))
-colnames(dimRed.I) <- paste0("Ibex_", colnames(dimRed.I))
-
-plot.df <- cbind.data.frame(Cluster.B = Cluster.B, 
-                            Cluster.I = Cluster.I, 
-                            dimRed.B, 
-                            dimRed.I,
-                            Epitope = as.vector(Seurat.Meta$Epitope))
-
-plot.df$Epitope[which(is.na(plot.df$Epitope))] <- "No"
-plot.df$Epitope <- factor(plot.df$Epitope, levels = c("NP", "ORF8", "RBD", "Spike", "No"))
-plot.df$Epitope[which(is.na(plot.df$Epitope))] <- "No"
-
-ggplot(plot.df, aes(x = Ben_UMAP1, y=Ben_UMAP2)) + 
-                    geom_point(aes(color = Cluster.B)) + 
-                    scale_color_viridis(discrete = TRUE, option = "H", na.value = "grey") + 
-                    guides(color = "none") + 
-                    theme_void()
-ggsave("Benisse.UMAP.png", height =10, width =10, dpi = 400)
-
-ggplot(plot.df %>% arrange(desc(Epitope)), aes(x = Ben_UMAP1, y=Ben_UMAP2)) + 
-                    geom_point(aes(color = Epitope)) + 
-                    scale_color_manual(values = c(viridis_pal()(4), "grey")) +
-                    guides(color = "none") + 
-                    theme_void()
-
-ggplot(plot.df, aes(x = Ibex_UMAP1, y=Ibex_UMAP2)) + 
-                    geom_point(aes(color = Cluster.I)) + 
-                    scale_color_viridis(discrete = TRUE, option = "H") + 
-                    guides(color = "none") + 
-                    theme_void()
-ggsave("Ibex.UMAP.png", height =10, width =10, dpi = 400)
-
-ggplot(plot.df %>% arrange(desc(Epitope)), aes(x = Ibex_UMAP1, y=Ibex_UMAP2)) + 
-                    geom_point(aes(color = Epitope)) + 
-                    scale_color_manual(values = c(viridis_pal()(4), "grey")) +
-                    guides(color = "none") + 
-                    theme_void()
+IGH.reduction.list[["Benisse"]] <- Benisse.results.filtered
+names(IGH.reduction.list) <- c(seurat.reductions, "Benisse")
+IGH.clonotypes <- str_split(SeuratMeta$CTaa, "_", simplify = TRUE)[,1]
+Spike.Specific <- as.factor(as.character(SeuratMeta$Spike.Specific))
 ```
 
 ```{r}
+###############################################################################
+#      2) Create group-based CV folds (no clonotype overlap in train/test)
+###############################################################################
+# We will manually create folds by clonotype.
+# If you have many clonotypes, you may consider a different # of folds or repeated CV.
 
+set.seed(123)
+unique_clonos <- unique(IGH.clonotypes)
+# Suppose we want 5 folds:
+clono_folds <- createFolds(unique_clonos, k = 5, returnTrain = FALSE)
+
+# We now build the index sets (row indices) for training and testing
+# so that no clonotype overlaps in train/test.
+train_index_list <- list()
+test_index_list  <- list()
+
+for (fold_i in seq_along(clono_folds)) {
+  test_clonotypes  <- unique_clonos[ clono_folds[[fold_i]] ]
+  # All rows that have clonotypes in 'test_clonotypes':
+  test_idx  <- which(IGH.clonotypes %in% test_clonotypes)
+  # Train is everything else
+  train_idx <- setdiff(seq_along(IGH.clonotypes), test_idx)
+  
+  train_index_list[[fold_i]] <- train_idx
+  test_index_list[[fold_i]]  <- test_idx
+}
+
+# Define a trainControl object with custom indices and summary function
+fitControl <- trainControl(
+  method           = "cv",        # caret will use the provided index sets
+  number           = 5,           # must match the length of index lists
+  index            = train_index_list,
+  indexOut         = test_index_list,
+  classProbs       = TRUE,        # to enable probability-based metrics (e.g. AUC)
+  summaryFunction  = myBinarySummary,
+  savePredictions  = "final"      # so we can extract predictions for ROC
+)
 ```
 
 ```{r}
-jacc.mat <- linkClustersMatrix(Cluster.B, Cluster.I)
-rownames(jacc.mat) <- paste("Benisse", rownames(jacc.mat))
-colnames(jacc.mat) <- paste("Ibex", colnames(jacc.mat))
+ml_methods <- c("ranger", "gbm", "xgbTree", "xgbLinear",
+                "svmLinear", "svmRadial", "gam", "glmnet", 
+                "earth", "lasso", "knn", "spls")
 
-pdf("Jaccard_Heatmap.pdf", height = 6, width = 6)
-pheatmap(jacc.mat, color=viridis::viridis(100), border_color = "white")
-dev.off()
+###############################################################################
+#      4) Loop over each dimension reduction and each ML method
+#         Collect performance and store final model or predictions
+###############################################################################
 
+# We'll store results in a nested list:
+all_results <- list()
+
+for (reduction_name in names(IGH.reduction.list)) {
+  
+  # Get the embedding for this reduction
+  embedding <- IGH.reduction.list[[reduction_name]]
+  
+  if (class(embedding) == "DimReduc") {
+    embedding <- embedding@cell.embeddings
+  }
+  # Make sure it is in a data.frame (caret expects data frames)
+  embedding <- as.data.frame(embedding)
+  
+  if(any(colSums(embedding) == 0)) {
+    embedding <- embedding[,-which(colSums(embedding) == 0)]
+  }
+  
+  embedding[] <- sapply(embedding[], scale)
+  
+  # Combine with outcome
+  df <- data.frame(embedding, Spike.Specific = Spike.Specific)
+  
+  model_results <- list()  # store for each method
+  
+  message("Fitting models for reduction: ", reduction_name)
+  
+  for (m in ml_methods) {
+    # Train the model
+    set.seed(123)  # ensure reproducibility for each model
+    fit <- train(
+      Spike.Specific ~ ., 
+      data       = df,
+      method     = m,
+      metric     = "F1",  # pick a main metric to optimize. Could be "Accuracy", etc.
+      trControl  = fitControl,
+      verbose = FALSE
+    )
+    
+    model_results[[m]] <- fit
+  }
+  
+  # Store all model fits for this reduction
+  all_results[[reduction_name]] <- model_results
+}
+
+###############################################################################
+#      5) Extract performance and create a summary table
+###############################################################################
+
+# We'll build a data.frame summarizing each model's performance (Accuracy, F1, etc.)
+# from the cross-validation results (best tune).
+perf_list <- list()
+
+for (reduction_name in names(all_results)) {
+  for (m in names(all_results[[reduction_name]])) {
+    fit_obj <- all_results[[reduction_name]][[m]]
+    
+    # caret's 'fit_obj$results' typically holds the resampled performance metrics 
+    # for each tuning parameter. The bestTune can be used to filter the final result.
+    best <- fit_obj$bestTune
+    # Merge or subset the row in fit_obj$results that matches bestTune
+    # (if there's more than one parameter, match them all)
+    tune_names <- names(best)
+    
+    res_sub <- fit_obj$results
+    for (tn in tune_names) {
+      res_sub <- res_sub[ which(res_sub[[tn]] == best[[tn]]), ]
+    }
+    # Now 'res_sub' should hold the best row or rows of results
+    
+    # We'll take the first row if multiple
+    res_sub <- res_sub[1, ]
+    
+    # A simple collector. If your summary function returns 
+    # Accuracy, Kappa, F1, PPV, NPV then they should appear in res_sub
+    perf_list[[paste0(reduction_name, "_", m)]] <- data.frame(
+      Reduction = reduction_name,
+      Model     = m,
+      Accuracy  = res_sub$Accuracy,
+      Kappa     = res_sub$Kappa,
+      F1        = res_sub$F1,
+      PPV       = res_sub$PPV,
+      NPV       = res_sub$NPV
+    )
+  }
+}
+
+final_perf <- do.call(rbind, perf_list)
+final_perf
 
 ```
 
