@@ -28,7 +28,7 @@ library(caret)
 library(pROC)
 ```
 
-Defininf Custom Functions
+## Defining Custom Functions
 
 ```{r}
 myBinarySummary <- function(data, lev = NULL, model = NULL) {
@@ -169,9 +169,11 @@ fitControl <- trainControl(
 ```
 
 ```{r}
-ml_methods <- c("ranger", "gbm", "xgbTree", "xgbLinear",
-                "svmLinear", "svmRadial", "gam", "glmnet", 
-                "earth", "lasso", "knn", "spls")
+ml_methods <- c("ranger", "xgbTree", "xgbLinear",
+                "svmLinear", "svmRadial",
+                "gam", "glmnet", "earth", 
+                "knn", "spls",
+                "rpart", "nb", "lda")
 
 ###############################################################################
 #      4) Loop over each dimension reduction and each ML method
@@ -206,6 +208,9 @@ for (reduction_name in names(IGH.reduction.list)) {
   message("Fitting models for reduction: ", reduction_name)
   
   for (m in ml_methods) {
+    
+    message("Fitting ", m)
+    
     # Train the model
     set.seed(123)  # ensure reproducibility for each model
     fit <- train(
