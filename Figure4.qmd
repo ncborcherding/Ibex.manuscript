@@ -8,10 +8,6 @@ date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
 
 To DO List
 
--   Add RNA component to Prediction Loop
-
--   Add Tuning for each model by type
-
 -   Figure 4B Dimensional Reductions Overall and by Spike
 
 -   Figure 4C Clustering ARI/Silhouette Comparison
@@ -131,11 +127,21 @@ IGH.reduction.list <- lapply(seurat.reductions, function(x) {
 IGH.reduction.list[["Benisse"]] <- Benisse.results.filtered
 names(IGH.reduction.list) <- c(seurat.reductions, "Benisse")
 
-#############################
-#Need to Add RNA Values
-############################
+# Adding PCA to Latent Dimensions
+PCA <- SeuratMerge@reductions$harmony.pca@cell.embeddings
 
+IGH.reduction.list.RNA <- lapply(IGH.reduction.list, function(x) {
+  if (class(x) == "DimReduc") {
+    tmp <- cbind(x@cell.embeddings, PCA)
+  } else {
+     tmp <- cbind(x, PCA)
+  }
+  tmp
+})
+names(IGH.reduction.list.RNA) <- paste0(names(IGH.reduction.list.RNA), ".PCA")
 
+# Combining Final List to Evaluate
+IGH.reduction.list <- c(IGH.reduction.list, IGH.reduction.list.RNA)
 
 IGH.clonotypes <- str_split(SeuratMeta$CTaa, "_", simplify = TRUE)[,1]
 Spike.Specific <- as.factor(as.character(SeuratMeta$Spike.Specific))
@@ -181,40 +187,61 @@ fitControl <- trainControl(
 ### Loop over each dimension reduction and each ML method
 
 ```{r}
+set.seed(123)
+
 ml_methods <- c("ranger", "xgbLinear", "lda", "knn")
 
-# Start looping over reductions and models
+# Initialize results container
 all_results <- list()
 
+# Define sophisticated parameter tuning
+fitControl <- trainControl(
+  method = "repeatedcv",
+  number = 5,
+  repeats = 3,
+  summaryFunction = prSummary,
+  classProbs = TRUE,
+  savePredictions = TRUE,
+  verboseIter = FALSE
+)
+
 for (reduction_name in names(IGH.reduction.list)) {
-  
+
   embedding <- IGH.reduction.list[[reduction_name]]
-  
-  if (class(embedding) == "DimReduc") {
+
+  if (inherits(embedding, "DimReduc")) {
     embedding <- embedding@cell.embeddings
   }
-  
+
   embedding <- as.data.frame(embedding)
-  
-  # Remove constant columns globally (before training)
+
+  # Remove zero-variance features
   embedding <- embedding[, apply(embedding, 2, sd) != 0]
-  embedding[] <- sapply(embedding[], scale)
-  
+
   df <- data.frame(embedding, Spike.Specific = Spike.Specific)
-  
+
+  # Apply recipe for standardized feature selection
+  rec <- recipe(Spike.Specific ~ ., data = df) %>%
+    step_zv(all_predictors()) %>%
+    step_corr(all_predictors(), threshold = 0.9) %>%
+    step_center(all_predictors()) %>%
+    step_scale(all_predictors())
+
   model_results <- list()
-  message("Fitting models for reduction: ", reduction_name)
-  
+  message("Processing reduction: ", reduction_name)
+
   for (m in ml_methods) {
-    message("Fitting ", m)
+    message("Fitting model: ", m)
+
     set.seed(123)
     fit <- tryCatch({
       train(
-        Spike.Specific ~ ., 
-        data       = df,
-        method     = m,
-        metric     = "F1",
-        trControl  = fitControl
+        rec,
+        data = df,
+        method = m,
+        metric = "F1",
+        trControl = fitControl,
+        tuneLength = 10
       )
     }, warning = function(w) {
       message("Warning: ", conditionMessage(w))
@@ -223,46 +250,48 @@ for (reduction_name in names(IGH.reduction.list)) {
       message("Error: ", e$message)
       NULL
     })
-    
+
     model_results[[m]] <- fit
   }
-  
+
   all_results[[reduction_name]] <- model_results
 }
 
-
-# We'll build a data.frame with overall performance 
+# Compile final performance metrics with detailed feature selection quantification
 perf_list <- list()
 
 for (reduction_name in names(all_results)) {
   for (m in names(all_results[[reduction_name]])) {
     fit_obj <- all_results[[reduction_name]][[m]]
 
-    best <- fit_obj$bestTune
-    tune_names <- names(best)
-    
-    res_sub <- fit_obj$results
-    for (tn in tune_names) {
-      res_sub <- res_sub[ which(res_sub[[tn]] == best[[tn]]), ]
+    if (!is.null(fit_obj)) {
+      best <- fit_obj$bestTune
+      res_sub <- inner_join(fit_obj$results, best)
+      res_sub <- res_sub[1, ]
+
+      # Quantify feature selection (number of features used after preprocessing)
+      rec_final <- prep(fit_obj$recipe, training = df)
+      num_features <- length(bake(rec_final, new_data = NULL) %>% select(-Spike.Specific))
+
+      perf_list[[paste0(reduction_name, "_", m)]] <- data.frame(
+        Reduction = reduction_name,
+        Model = m,
+        Accuracy = res_sub$Accuracy,
+        Kappa = res_sub$Kappa,
+        F1 = res_sub$F1,
+        PPV = res_sub$Precision,
+        NPV = res_sub$Recall,
+        Features_Selected = num_features,
+        Parameters_Tuned = paste(names(best), best, sep = "=", collapse = ";")
+      )
     }
-    
-    res_sub <- res_sub[1, ]
-    
-    perf_list[[paste0(reduction_name, "_", m)]] <- data.frame(
-      Reduction = reduction_name,
-      Model     = m,
-      Accuracy  = res_sub$Accuracy,
-      Kappa     = res_sub$Kappa,
-      F1        = res_sub$F1,
-      PPV       = res_sub$PPV,
-      NPV       = res_sub$NPV
-    )
   }
 }
 
-final_perf <- do.call(rbind, perf_list)
-final_perf
+final_perf <- bind_rows(perf_list)
 
+# Return final performance results
+final_perf
 ```
 
 # Conclusions
