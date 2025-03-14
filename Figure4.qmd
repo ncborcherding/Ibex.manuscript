@@ -294,6 +294,58 @@ final_perf <- bind_rows(perf_list)
 final_perf
 ```
 
+## Figure 4B
+
+```{r}
+selected_names <- c("Ibex.H.CNN.atchleyFactors", 
+                    "Ibex.H.CNN.crucianiProperties",
+                    "Ibex.H.Geometric", 
+                    "Benisse")
+
+selected_list <- IGH.reduction.list[selected_names]
+
+pca_results <- lapply(names(selected_list), function(name) {
+  if(inherits(selected_list[[name]], "DimReduc")) { 
+    dat <- selected_list[[name]]@cell.embeddings
+  } else {
+    dat <- selected_list[[name]]
+  }
+  # Remove zero-variance features
+  dat <- dat[, apply(dat, 2, sd) != 0]
+  
+  pca <- prcomp(dat, scale. = TRUE)
+  data.frame(PC1 = pca$x[, 1],
+             PC2 = pca$x[, 2],
+             Sample = rownames(selected_list[[name]]),
+             clone = SeuratMerge$CTaa,
+             Heavy.V = SeuratMerge$Heavy.V, 
+             Heavy.C = SeuratMerge$Heavy.C,
+             Spike.Specific = SeuratMerge$Spike.Specific, 
+             Cluster = SeuratMerge$leiden_0.18, 
+             Group = name)
+})
+
+# Combine into a single dataframe
+pca_df <- do.call(rbind, pca_results)
+
+cluster.palette <- RColorBrewer::brewer.pal(length(levels(pca_df$Cluster)), "Paired")
+cluster.palette <- cluster.palette [c(1,2,3,4,7,8,5,6,9)]
+
+names(cluster.palette) <- levels(pca_df$Cluster)
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Cluster)) +
+  geom_point(alpha = 0.6, size = 1.5) +
+  stat_density_2d(data = subset(pca_df, Spike.Specific == "Yes"), 
+                  aes(x = PC1, y = PC2),
+                  color = "black", size = 0.3) +
+  facet_wrap(~Group, scales = "free") +
+  scale_color_manual(values = cluster.palette) +
+  theme_void() +
+  labs(x = "PC1", y = "PC2")
+
+
+```
+
 # Conclusions
 
 ```{r}
