@@ -8,11 +8,8 @@ date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
 
 To DO List
 
--   Figure 4B Dimensional Reductions Overall and by Spike
 
 -   Figure 4C Clustering ARI/Silhouette Comparison
-
--   Figure 4E: ML Overall Model Summary
 
 -   Figure 4F: ROC Curve
 
@@ -24,6 +21,9 @@ library(stringr)
 library(Ibex)
 library(caret)
 library(pROC)
+library(igraph)
+library(leidenAlg)   
+library(mclust)
 ```
 
 ## Defining Custom Functions
@@ -59,6 +59,35 @@ myBinarySummary <- function(data, lev = NULL, model = NULL) {
   )
   
   return(out)
+}
+
+jaccard_partition <- function(c1, c2) {
+  # c1, c2 are integer vectors of cluster memberships
+  stopifnot(length(c1) == length(c2))
+  
+  n <- length(c1)
+  pairs_both <- 0
+  pairs_either <- 0
+  
+  # Compare co-clustering in each partition
+  for (i in 1:(n-1)){
+    for (j in (i+1):n){
+      same1 <- (c1[i] == c1[j])
+      same2 <- (c2[i] == c2[j])
+      
+      # If either partition puts i,j together, count it in "either"
+      if (same1 || same2) pairs_either <- pairs_either + 1
+      # If both partitions put i,j together, count it in "both"
+      if (same1 && same2) pairs_both <- pairs_both + 1
+    }
+  }
+  
+  # Jaccard index = intersection / union (for co-clustered pairs)
+  if (pairs_either == 0) {
+    return(NA)  # or 0, depending on preference
+  } else {
+    return(pairs_both / pairs_either)
+  }
 }
 ```
 
@@ -199,6 +228,100 @@ ggplot(pca_df, aes(x = PC1, y = PC2, color = Cluster)) +
 ```
 
 ## Figure 4C
+
+```{r}
+##################################################
+# Cluster each element in the list using Leiden
+##################################################
+cluster.assignments <- list()
+
+for (reduction_name in names(IGH.reduction.list)) {
+  
+  # Retrieve the adjacency matrix
+  adjacency_mat <- IGH.reduction.list[[reduction_name]]
+  
+  # Convert to igraph object
+  # mode="undirected", weighted=TRUE, diag=FALSE
+  g <- graph_from_adjacency_matrix(
+    adjmatrix = adjacency_mat,
+    mode      = "undirected",
+    weighted  = TRUE,
+    diag      = FALSE
+  )
+  
+  # Run Leiden clustering
+  # Adjust resolution_parameter, n_iterations as needed
+  partition <- leiden(
+    g,
+    resolution_parameter = 1,
+    n_iterations = 10
+  )
+  
+  # Store the cluster memberships
+  cluster.assignments[[reduction_name]] <- membership(partition)
+}
+
+
+##################################################
+# Compare all pairs of cluster solutions
+# using ARI and Jaccard
+##################################################
+all_combinations <- combn(names(cluster.assignments), 2, simplify = FALSE)
+
+comparison_results <- data.frame(
+  Method1  = character(), 
+  Method2  = character(), 
+  ARI      = numeric(), 
+  Jaccard  = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (comb in all_combinations) {
+  c1 <- cluster.assignments[[comb[1]]]
+  c2 <- cluster.assignments[[comb[2]]]
+  
+  # Adjusted Rand Index
+  ari_val <- adjustedRandIndex(c1, c2)
+  
+  # Jaccard index (as defined above for partitions)
+  jacc_val <- jaccard_partition(c1, c2)
+  
+  # Add to results
+  comparison_results <- rbind(
+    comparison_results,
+    data.frame(
+      Method1 = comb[1], 
+      Method2 = comb[2],
+      ARI     = ari_val, 
+      Jaccard = jacc_val
+    )
+  )
+}
+
+##################################################
+# Visualize the pairwise metrics with ggplot
+# (Two examples: ARI heatmap and Jaccard heatmap)
+##################################################
+
+# Heatmap-like for ARI
+ggplot(comparison_results, aes(x = Method1, y = Method2, fill = ARI)) +
+  geom_tile() +
+  geom_text(aes(label = round(ARI, 2)), color = "white", size = 4) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0.5) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Adjusted Rand Index Between Cluster Partitions") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Heatmap-like for Jaccard
+ggplot(comparison_results, aes(x = Method1, y = Method2, fill = Jaccard)) +
+  geom_tile() +
+  geom_text(aes(label = round(Jaccard, 2)), color = "white", size = 4) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0.5) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Jaccard Index Between Cluster Partitions") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
 
 ## Figure 4D
 
@@ -423,6 +546,54 @@ plot3 <- ggplot(heatmap_data, aes(x = Model, y = Reduction, fill = NPV)) +
        fill = "NPV") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+## Figure 4E 
+
+```{r}
+plot_obj <- NULL
+plot_colors <- rainbow(length(names(all_results)))  
+i <- 1
+
+for (reduction_name in names(all_results)) {
+  fit_obj <- all_results[[reduction_name]][[chosen_model]]
+  
+  best <- fit_obj$bestTune
+  pred_df <- fit_obj$pred
+  for (tn in names(best)) {
+    pred_df <- pred_df[ which(pred_df[[tn]] == best[[tn]]), ]
+  }
+  
+  positive_class <- fit_obj$levels[2]
+  roc_obj <- roc(response = pred_df$obs, 
+                 predictor = pred_df[[positive_class]], 
+                 levels = fit_obj$levels)
+  
+  if (is.null(plot_obj)) {
+    plot_obj <- plot.roc(roc_obj,
+                         main = paste("ROC for", chosen_model, "across reductions"),
+                         col = plot_colors[i],
+                         lwd = 2)
+  } else {
+    lines.roc(roc_obj, col = plot_colors[i], lwd = 2)
+  }
+  
+  auc_val <- round(auc(roc_obj), 3)
+  legend_label <- paste0(reduction_name, " (AUC=", auc_val, ")")
+  
+  if (i == 1) {
+    legend_text <- legend_label
+  } else {
+    legend_text <- c(legend_text, legend_label)
+  }
+  
+  i <- i + 1
+}
+
+# Add a legend
+legend("bottomright", legend = legend_text,
+       col = plot_colors, lwd = 2, cex = 0.8)
+
+```
+
 
 ## Conclusions
 
