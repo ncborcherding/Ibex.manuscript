@@ -3,22 +3,24 @@ title: "Figure 4"
 author: "Nick Borcherding"
 format: html
 editor: visual
-date: "7/23/24"
+date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
 ---
 
 To DO List
 
-Make List of shared Benisse and Ibex encoding
+-   Add RNA component to Prediction Loop
 
-Assign Spike vs not
+-   Add Tuning for each model by type
 
-Sample 80:20 split data
+-   Figure 4B Dimensional Reductions Overall and by Spike
 
-Traing model run
+-   Figure 4C Clustering ARI/Silhouette Comparison
 
-Tuning model
+-   Figure 4E: ML Overall Model Summary
 
-Loading Libraries
+-   Figure 4F: ROC Curve
+
+## Loading Libraries
 
 ```{r}
 library(Seurat)
@@ -64,7 +66,9 @@ myBinarySummary <- function(data, lev = NULL, model = NULL) {
 }
 ```
 
-# Unifying Benisse and Seurat Data
+## Processing the Data 
+
+###  Unifying Benisse and Seurat Data
 
 ```{r}
 # Read the Seurat object
@@ -94,9 +98,11 @@ rownames(Benisse.results.filtered) <- barcodes
 gc()
 ```
 
+### Assembling the Dimensional Reductions
+
 ```{r}
 arch <- c("CNN", "VAE")
-encoders <- c("atchleyFactors", "crucianiProperties", "kideraFactors", "MSWHIM", "tScales", "OHE")
+encoders <- c("atchleyFactors", "crucianiProperties", "OHE")
 
 for(i in seq_along(arch)) {
   for(j in seq_along(encoders)) {
@@ -115,7 +121,7 @@ for(i in seq_along(arch)) {
                            geometric.theta = pi/3, 
                            reduction.name = "Ibex.H.Geometric")
     
-seurat.reductions <- Reductions(SeuratMerge)[7:19]
+seurat.reductions <- Reductions(SeuratMerge)[7:length(Reductions(SeuratMerge))]
 
 IGH.reduction.list <- lapply(seurat.reductions, function(x) {
                           tmp <- SeuratMerge[[x]]
@@ -124,141 +130,124 @@ IGH.reduction.list <- lapply(seurat.reductions, function(x) {
 
 IGH.reduction.list[["Benisse"]] <- Benisse.results.filtered
 names(IGH.reduction.list) <- c(seurat.reductions, "Benisse")
+
+#############################
+#Need to Add RNA Values
+############################
+
+
+
 IGH.clonotypes <- str_split(SeuratMeta$CTaa, "_", simplify = TRUE)[,1]
 Spike.Specific <- as.factor(as.character(SeuratMeta$Spike.Specific))
 ```
 
-```{r}
-###############################################################################
-#      2) Create group-based CV folds (no clonotype overlap in train/test)
-###############################################################################
-# We will manually create folds by clonotype.
-# If you have many clonotypes, you may consider a different # of folds or repeated CV.
+### Create group-based CV folds (no clonotype overlap in train/test)
 
+```{r}
 set.seed(123)
 unique_clonos <- unique(IGH.clonotypes)
-# Suppose we want 5 folds:
+
+# Create folds at clonotype level
 clono_folds <- createFolds(unique_clonos, k = 5, returnTrain = FALSE)
 
-# We now build the index sets (row indices) for training and testing
-# so that no clonotype overlaps in train/test.
+# Initialize index lists
 train_index_list <- list()
 test_index_list  <- list()
 
 for (fold_i in seq_along(clono_folds)) {
-  test_clonotypes  <- unique_clonos[ clono_folds[[fold_i]] ]
-  # All rows that have clonotypes in 'test_clonotypes':
-  test_idx  <- which(IGH.clonotypes %in% test_clonotypes)
-  # Train is everything else
+  
+  test_clonotypes <- unique_clonos[clono_folds[[fold_i]]]
+  
+  test_idx <- which(IGH.clonotypes %in% test_clonotypes)
   train_idx <- setdiff(seq_along(IGH.clonotypes), test_idx)
   
   train_index_list[[fold_i]] <- train_idx
   test_index_list[[fold_i]]  <- test_idx
 }
 
-# Define a trainControl object with custom indices and summary function
+# Define caret control object correctly
 fitControl <- trainControl(
-  method           = "cv",        # caret will use the provided index sets
-  number           = 5,           # must match the length of index lists
+  method           = "cv",
+  number           = 5,
   index            = train_index_list,
   indexOut         = test_index_list,
-  classProbs       = TRUE,        # to enable probability-based metrics (e.g. AUC)
+  classProbs       = TRUE,
   summaryFunction  = myBinarySummary,
-  savePredictions  = "final"      # so we can extract predictions for ROC
+  savePredictions  = "final",
+  verboseIter      = FALSE
 )
 ```
 
+### Loop over each dimension reduction and each ML method
+
 ```{r}
-ml_methods <- c("ranger", "xgbTree", "xgbLinear",
-                "svmLinear", "svmRadial",
-                "gam", "glmnet", "earth", 
-                "knn", "spls",
-                "rpart", "nb", "lda")
+ml_methods <- c("ranger", "xgbLinear", "lda", "knn")
 
-###############################################################################
-#      4) Loop over each dimension reduction and each ML method
-#         Collect performance and store final model or predictions
-###############################################################################
-
-# We'll store results in a nested list:
+# Start looping over reductions and models
 all_results <- list()
 
 for (reduction_name in names(IGH.reduction.list)) {
   
-  # Get the embedding for this reduction
   embedding <- IGH.reduction.list[[reduction_name]]
   
   if (class(embedding) == "DimReduc") {
     embedding <- embedding@cell.embeddings
   }
-  # Make sure it is in a data.frame (caret expects data frames)
+  
   embedding <- as.data.frame(embedding)
   
-  if(any(colSums(embedding) == 0)) {
-    embedding <- embedding[,-which(colSums(embedding) == 0)]
-  }
-  
+  # Remove constant columns globally (before training)
+  embedding <- embedding[, apply(embedding, 2, sd) != 0]
   embedding[] <- sapply(embedding[], scale)
   
-  # Combine with outcome
   df <- data.frame(embedding, Spike.Specific = Spike.Specific)
   
-  model_results <- list()  # store for each method
-  
+  model_results <- list()
   message("Fitting models for reduction: ", reduction_name)
   
   for (m in ml_methods) {
-    
     message("Fitting ", m)
-    
-    # Train the model
-    set.seed(123)  # ensure reproducibility for each model
-    fit <- train(
-      Spike.Specific ~ ., 
-      data       = df,
-      method     = m,
-      metric     = "F1",  # pick a main metric to optimize. Could be "Accuracy", etc.
-      trControl  = fitControl,
-      verbose = FALSE
-    )
+    set.seed(123)
+    fit <- tryCatch({
+      train(
+        Spike.Specific ~ ., 
+        data       = df,
+        method     = m,
+        metric     = "F1",
+        trControl  = fitControl
+      )
+    }, warning = function(w) {
+      message("Warning: ", conditionMessage(w))
+      NULL
+    }, error = function(e) {
+      message("Error: ", e$message)
+      NULL
+    })
     
     model_results[[m]] <- fit
   }
   
-  # Store all model fits for this reduction
   all_results[[reduction_name]] <- model_results
 }
 
-###############################################################################
-#      5) Extract performance and create a summary table
-###############################################################################
 
-# We'll build a data.frame summarizing each model's performance (Accuracy, F1, etc.)
-# from the cross-validation results (best tune).
+# We'll build a data.frame with overall performance 
 perf_list <- list()
 
 for (reduction_name in names(all_results)) {
   for (m in names(all_results[[reduction_name]])) {
     fit_obj <- all_results[[reduction_name]][[m]]
-    
-    # caret's 'fit_obj$results' typically holds the resampled performance metrics 
-    # for each tuning parameter. The bestTune can be used to filter the final result.
+
     best <- fit_obj$bestTune
-    # Merge or subset the row in fit_obj$results that matches bestTune
-    # (if there's more than one parameter, match them all)
     tune_names <- names(best)
     
     res_sub <- fit_obj$results
     for (tn in tune_names) {
       res_sub <- res_sub[ which(res_sub[[tn]] == best[[tn]]), ]
     }
-    # Now 'res_sub' should hold the best row or rows of results
     
-    # We'll take the first row if multiple
     res_sub <- res_sub[1, ]
     
-    # A simple collector. If your summary function returns 
-    # Accuracy, Kappa, F1, PPV, NPV then they should appear in res_sub
     perf_list[[paste0(reduction_name, "_", m)]] <- data.frame(
       Reduction = reduction_name,
       Model     = m,
