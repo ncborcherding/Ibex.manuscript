@@ -24,6 +24,8 @@ library(pROC)
 library(igraph)
 library(leidenAlg)   
 library(mclust)
+library(recipes)
+library(MLmetrics)
 ```
 
 ## Defining Custom Functions
@@ -179,10 +181,7 @@ Spike.Specific <- as.factor(as.character(SeuratMeta$Spike.Specific))
 ## Figure 4B
 
 ```{r}
-selected_names <- c("Ibex.H.CNN.atchleyFactors", 
-                    "Ibex.H.CNN.crucianiProperties",
-                    "Ibex.H.Geometric", 
-                    "Benisse")
+selected_names <- rev(names(IGH.reduction.list)[1:8])
 
 selected_list <- IGH.reduction.list[selected_names]
 
@@ -220,7 +219,7 @@ ggplot(pca_df, aes(x = PC1, y = PC2, color = Cluster)) +
   stat_density_2d(data = subset(pca_df, Spike.Specific == "Yes"), 
                   aes(x = PC1, y = PC2),
                   color = "black", size = 0.3) +
-  facet_wrap(~Group, scales = "free") +
+  facet_wrap(~Group, scales = "free", ncol = 4) +
   scale_color_manual(values = cluster.palette) +
   theme_void() +
   labs(x = "PC1", y = "PC2")
@@ -377,7 +376,7 @@ fitControl <- trainControl(
   method = "repeatedcv",
   number = 5,
   repeats = 3,
-  summaryFunction = prSummary,
+  summaryFunction = twoClassSummary,
   classProbs = TRUE,
   savePredictions = TRUE,
   verboseIter = FALSE
@@ -413,11 +412,11 @@ for (reduction_name in names(IGH.reduction.list)) {
 
     set.seed(123)
     fit <- tryCatch({
-      train(
+      caret::train(
         rec,
         data = df,
         method = m,
-        metric = "F1",
+        metric = "ROC",
         trControl = fitControl,
         tuneLength = 10
       )
