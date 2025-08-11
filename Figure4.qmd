@@ -8,7 +8,6 @@ date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
 
 To DO List
 
-
 -   Figure 4C Clustering ARI/Silhouette Comparison
 
 -   Figure 4F: ROC Curve
@@ -33,23 +32,6 @@ library(MLmetrics)
 This section defines two custom functions used later in the analysis: `myBinarySummary` for evaluating machine learning model performance and `jaccard_partition` for comparing clustering results.
 
 ```{r}
-#' @title Comprehensive Binary Classification Summary for Caret
-#' @description This function calculates a suite of binary classification metrics.
-#' It is designed to be used as a `summaryFunction` within the `caret` package.
-#' @param data A data frame with columns `obs` (observed labels) and `pred` (predicted labels).
-#' It may also contain columns for class probabilities (e.g., `Yes`, `No`).
-#' @param lev A character vector of the class levels. The second level is assumed to be the "positive" class.
-#' @param model The `caret` model object (optional, not used here).
-#' @return A named numeric vector containing:
-#' \itemize{
-#'   \item `Accuracy`: Overall accuracy.
-#'   \item `Kappa`: Cohen's Kappa.
-#'   \item `F1`: The F1-score (harmonic mean of precision and recall).
-#'   \item `Sensitivity`: The sensitivity (or recall).
-#'   \item `Specificity`: The specificity.
-#'   \item `PPV`: Positive Predictive Value (or precision).
-#'   \item `NPV`: Negative Predictive Value.
-#' }
 myBinarySummary <- function(data, lev = NULL, model = NULL) {
   # Ensure the positive class is correctly identified (assuming it's the second level)
   if (length(lev) > 1) {
@@ -85,15 +67,6 @@ myBinarySummary <- function(data, lev = NULL, model = NULL) {
   return(out)
 }
 
-#' @title Jaccard Index for Cluster Partitions
-#' @description Calculates the Jaccard index between two cluster partitions.
-#' The index measures the similarity of co-clustering. It is defined as the
-#' number of pairs of points clustered together in both partitions divided by
-#' the number of pairs clustered together in at least one partition.
-#' @param c1 An integer vector representing the first cluster partition.
-#' @param c2 An integer vector representing the second cluster partition. Must be of the same length as c1.
-#' @return The Jaccard index, a numeric value between 0 and 1.
-#' Returns NA if no pairs are co-clustered in either partition.
 jaccard_partition <- function(c1, c2) {
   # c1, c2 are integer vectors of cluster memberships
   stopifnot(length(c1) == length(c2))
@@ -125,7 +98,7 @@ jaccard_partition <- function(c1, c2) {
 }
 ```
 
-## Processing the Data 
+## Processing the Data
 
 This section handles the loading and preprocessing of the single-cell data. It involves three main steps:
 1.  Loading the primary Seurat object and the pre-computed embeddings from the BENISSE tool.
@@ -297,8 +270,6 @@ The results are visualized as a heatmap, where higher values (brighter colors) i
 
 ```{r}
 # This chunk performs the clustering and comparison.
-# It requires the 'bluster' package for efficient kNN graph construction.
-# BiocManager::install("bluster")
 library(bluster)
 
 # --- Step 1 & 2: Build kNN graph and run Leiden for each embedding ---
@@ -400,30 +371,35 @@ The process is as follows:
 2.  **Model Training:** For each of the embeddings, we train four different types of machine learning models: Random Forest (`ranger`), regularized logistic regression (`xgbLinear`), Linear Discriminant Analysis (`lda`), and k-Nearest Neighbors (`knn`). This allows us to see if certain embeddings work better with specific model architectures. We use the `caret` package to standardize this process.
 3.  **Performance Evaluation:** We evaluate the models using the F1-score as our primary metric, as it provides a balanced measure of precision and recall, which is important for imbalanced datasets. We also report other standard metrics.
 
+## Figure 4D
+
 ### Create group-based CV folds (no clonotype overlap in train/test)
 
 Here, we define the cross-validation strategy. We first identify all unique clonotypes, split them into 5 folds, and then create index lists for `caret` to use for training and testing, ensuring no clonotype overlap.
 
 ```{r}
 set.seed(123)
+# Step 1: Create training/test split at the clonotype level
 unique_clonos <- unique(IGH.clonotypes)
+test_clonos <- sample(unique_clonos, size = floor(0.2 * length(unique_clonos)))
+test_idx <- which(IGH.clonotypes %in% test_clonos)
+train_idx <- setdiff(seq_along(IGH.clonotypes), test_idx)
 
-# Create folds at clonotype level
-clono_folds <- createFolds(unique_clonos, k = 5, returnTrain = FALSE)
+# Step 2: Prepare training folds (CV) at clonotype level
+train_clonos <- IGH.clonotypes[train_idx]
+train_clono_ids <- unique(train_clonos)
+clono_folds <- createFolds(train_clono_ids, k = 5, returnTrain = FALSE)
 
-# Initialize index lists
 train_index_list <- list()
 test_index_list  <- list()
 
 for (fold_i in seq_along(clono_folds)) {
+  fold_clonos <- train_clono_ids[clono_folds[[fold_i]]]
+  test_fold_idx <- train_idx[which(train_clonos %in% fold_clonos)]
+  train_fold_idx <- setdiff(train_idx, test_fold_idx)
   
-  test_clonotypes <- unique_clonos[clono_folds[[fold_i]]]
-  
-  test_idx <- which(IGH.clonotypes %in% test_clonotypes)
-  train_idx <- setdiff(seq_along(IGH.clonotypes), test_idx)
-  
-  train_index_list[[fold_i]] <- train_idx
-  test_index_list[[fold_i]]  <- test_idx
+  train_index_list[[fold_i]] <- train_fold_idx
+  test_index_list[[fold_i]]  <- test_fold_idx
 }
 
 # Define caret control object correctly
@@ -436,7 +412,7 @@ fitControl <- trainControl(
   summaryFunction  = myBinarySummary,
   savePredictions  = "final",
   verboseIter      = FALSE,
-  allowParallel    = TRUE # Enable parallel processing
+  allowParallel    = TRUE 
 )
 ```
 
@@ -456,39 +432,48 @@ ml_methods <- c("ranger", "xgbLinear", "lda", "knn")
 # Initialize results container
 all_results <- list()
 
+# Step 3: Define trainControl using CV folds
+fitControl <- trainControl(
+  method = "cv",
+  number = 5,
+  index = train_index_list,
+  indexOut = test_index_list,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = "final",
+  verboseIter = FALSE
+)
+
+ml_methods <- c("rf", "xgbLinear", "lda", "knn")
+all_results <- list()
+
+# Step 4: Loop over each dimensionality reduction
 for (reduction_name in names(IGH.reduction.list)) {
-
   embedding <- IGH.reduction.list[[reduction_name]]
-
   if (inherits(embedding, "DimReduc")) {
     embedding <- embedding@cell.embeddings
   }
-
   embedding <- as.data.frame(embedding)
-
-  # Remove zero-variance features
-  embedding <- embedding[, apply(embedding, 2, sd) != 0]
+  embedding <- embedding[, apply(embedding, 2, sd, na.rm = TRUE) != 0]
 
   df <- data.frame(embedding, Spike.Specific = Spike.Specific)
-
-  # Apply recipe for standardized feature selection
-  rec <- recipe(Spike.Specific ~ ., data = df) %>%
-    step_zv(all_predictors()) %>%
-    step_corr(all_predictors(), threshold = 0.9) %>%
-    step_center(all_predictors()) %>%
-    step_scale(all_predictors())
-
+  
   model_results <- list()
   message("Processing reduction: ", reduction_name)
 
+  # Step 5: Define recipe (scaling and filtering)
+  rec <- recipe(Spike.Specific ~ ., data = df) %>%
+    step_zv(all_predictors()) %>%
+    step_center(all_predictors()) %>%
+    step_scale(all_predictors())
+
   for (m in ml_methods) {
     message("Fitting model: ", m)
-
     set.seed(123)
     fit <- tryCatch({
       caret::train(
         rec,
-        data = df,
+        data = df[train_idx, ],
         method = m,
         metric = "ROC",
         trControl = fitControl,
@@ -501,12 +486,11 @@ for (reduction_name in names(IGH.reduction.list)) {
       message("Error: ", e$message)
       NULL
     })
-
     model_results[[m]] <- fit
   }
-
   all_results[[reduction_name]] <- model_results
 }
+saveRDS(all_results, "outputs/intermediates/model_results.rds")
 
 # Compile final performance metrics
 perf_list <- list()
@@ -519,6 +503,18 @@ for (reduction_name in names(all_results)) {
       # We want the metrics for the final, best model.
       # Since we used a custom CV strategy, we look at the single row of metrics.
       res_sub <- fit_obj$results[1, ]
+      best <- fit_obj$bestTune
+      res_sub <- inner_join(fit_obj$results, best)
+      res_sub <- res_sub[1, ]
+      Sens <- res_sub$Sens
+      Spec <- res_sub$Spec
+      TP <- Sens * 979
+      TN <- res_sub$Spec * 373
+      FP <- 373-TN
+      FN <- 979-TP
+      PPV = TP/(TP + FP)
+      NPV = TN/(TN + FN)
+      
 
       perf_list[[paste0(reduction_name, "_", m)]] <- data.frame(
         Reduction = reduction_name,
@@ -554,14 +550,41 @@ A heatmap is useful, but a dot plot can be more effective for comparing performa
 ```{r}
 # Use the same clean labels as before
 final_perf$Reduction_clean <- clean_label(final_perf$Reduction)
+# Select relevant columns and reshape for heatmap
+heatmap_data <- final_perf %>%
+  select(Model, Reduction, F1)
 
-# Sort the embedding methods by their median F1 score for a clearer plot
-final_perf$Reduction_f <- reorder(final_perf$Reduction_clean, final_perf$F1, median)
 
-# Create the dot plot
-ggplot(final_perf, aes(x = F1, y = Reduction_f, color = Model)) +
-  geom_point(alpha = 0.8, size = 4) +
-  scale_color_brewer(palette = "Set1", name = "ML Model") +
+# Plot heatmap
+plot1 <- ggplot(heatmap_data, aes(x = Model, y = Reduction, fill = F1)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis() +
+  theme_minimal() +
+  labs(title = "Kappa Values by Model and Reduction",
+       x = "Model",
+       y = "Reduction",
+       fill = "Kappa") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#############
+#PPV Viz
+#############
+
+# Select relevant columns and reshape for heatmap
+heatmap_data <- final_perf %>%
+  select(Model, Reduction, PPV)
+
+heatmap_data$Reduction <- ifelse(
+  heatmap_data$Reduction == "Benisse",
+  "Benisse",
+  gsub(".*\\.(.*)$", "\\1", heatmap_data$Reduction)
+)
+
+# Plot heatmap
+plot2 <- ggplot(heatmap_data, aes(x = Model, y = Reduction, fill = PPV)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis() +
+  theme_minimal() +
   labs(
     title = "Machine Learning Performance for Antigen Prediction",
     subtitle = "F1-Score Across Different Embedding and Model Types",
@@ -578,11 +601,14 @@ ggplot(final_perf, aes(x = F1, y = Reduction_f, color = Model)) +
   ) +
   scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2))
 ```
+
 ## Figure 4E: ROC Curve Comparison for the Best Model
 
 To further explore the performance of the top models, we can visualize their Receiver Operating Characteristic (ROC) curves. An ROC curve plots the true positive rate against the false positive rate at various threshold settings. The Area Under the Curve (AUC) is a key metric; a value of 1.0 represents a perfect classifier, while 0.5 represents a classifier with no discriminative ability.
 
 Here, we first identify the best-performing model type (e.g., `ranger`) based on the median F1-score from the previous section. We then plot the ROC curves for that model across all the different embedding types. This allows us to see which embeddings provide the best classification power for the winning model architecture.
+
+## Figure 4E
 
 ```{r}
 # --- Programmatically select the best model ---
@@ -652,21 +678,8 @@ legend(
 ```
 
 
-## Final Analysis and Conclusions
+## Conclusions
 
-In this analysis, we rigorously benchmarked multiple deep learning and classical embedding techniques for representing BCR heavy chain sequences. We evaluated these embeddings on their ability to preserve intrinsic data structure (via clustering) and their power in a supervised prediction task (antigen specificity).
-
-**Key Findings:**
-
-1.  **Clustering (Figure 4C):** The clustering analysis revealed that embeddings generated with similar methods (e.g., all VAE-based models) tended to produce highly similar clusterings, as shown by the high ARI scores among them. The multimodal embeddings, which combined BCR information with RNA-seq PCA (`+RNA`), often formed a distinct group, suggesting they capture a different, yet consistent, structural representation of the data.
-
-2.  **Predictive Performance (Figure 4D):** In the task of predicting spike protein specificity, the multimodal embeddings (`+RNA`) were the clear top performers. For almost every embedding type, adding the RNA information dramatically boosted the F1-score. The `ranger` (Random Forest) model was the most consistent and highest-performing model architecture across nearly all embeddings, highlighting its robustness. The `Benisse` and `Ibex.H.VAE.OHE+RNA` embeddings, when paired with the `ranger` model, achieved the highest F1-scores, demonstrating excellent predictive power.
-
-3.  **ROC Analysis (Figure 4E):** The ROC analysis of the best model (`ranger`) confirmed the superiority of the multimodal embeddings. The curves for the `+RNA` methods consistently showed a larger Area Under the Curve (AUC), indicating better discrimination between spike-specific and non-specific cells across all classification thresholds.
-
-**Overall Conclusion:**
-
-For the task of antigen specificity prediction, a multimodal approach that combines BCR sequence embeddings with transcriptional data offers substantially better performance than using BCR information alone. While VAE- and CNN-based autoencoders produce useful representations, their predictive power is significantly enhanced when concatenated with PCA components from the single-cell gene expression data. The combination of a VAE with one-hot encoding, augmented with RNA data, and fed into a Random Forest classifier, provided the best results in this benchmark.
 
 ```{r}
 # Stop the parallel cluster
