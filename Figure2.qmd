@@ -25,7 +25,7 @@ library(scater)
 ## Figure 2A: Performance
 
 ```{r}
-data_dir <- "~/Documents/GitHub/Ibex.manuscript/data/trainingRuns/modelPerformance"
+data_dir <- "./data/trainingRuns/modelPerformance"
 
 # List all files in the director
 performance.results <- list.files(data_dir, full.names = TRUE)
@@ -86,7 +86,7 @@ ggsave("./outputs/Figure2/Figure2A.pdf", height = 8.5, width = 5)
 ## Figure 2B: Encoding Time
 
 ```{r}
-data_dir <- "~/Documents/GitHub/Ibex.manuscript/data/trainingRuns/encodingTime"
+data_dir <- "./data/trainingRuns/encodingTime"
 
 # List all files in the director
 encode.results <- list.files(data_dir, full.names = TRUE)
@@ -165,7 +165,7 @@ ggsave("./outputs/Figure2/Figure2B.pdf", height = 5, width = 10.5)
 ## Figure 2C: Edit Distance Distributions
 
 ```{r}
-data_dir <- "~/Documents/GitHub/Ibex.manuscript/data/trainingRuns/editDistances"
+data_dir <- "./data/trainingRuns/editDistances"
 
 # List all files in the director
 edit.results <- list.files(data_dir, full.names = TRUE)

@@ -22,7 +22,7 @@ library(patchwork)
 ## Loading Preliminary Tuning Data
 
 ```{r}
-tuned.results <- list.files("~/Documents/GitHub/Ibex.manuscript/data/tuningRuns/Preliminary", 
+tuned.results <- list.files("./data/tuningRuns/Preliminary",
                                 full.names = TRUE)
 file.names <- str_split(tuned.results, "/", simplify = TRUE)[,ncol(str_split(tuned.results, "/", simplify = TRUE))]
 file.names <- str_remove_all(file.names, ".rds")
@@ -94,7 +94,7 @@ plot2 <- ggplot(scaled_results[tuned.results$variable == "latent_dim",],
           scale_color_viridis(discrete = TRUE) +
           scale_fill_viridis(discrete = TRUE) +
           facet_grid(.~optimizer) + 
-          heme_clean(base_size = 14) +
+           theme_clean(base_size = 14) +
           guides(linetype = "none") + 
           theme(legend.position = "right", 
                 plot.background = element_rect(color = NA))
@@ -104,7 +104,7 @@ ggsave("./outputs/Figure1/Figure1C.pdf", height = 5.5, width = 10)
 
 #############
 #Layer 2
-#############la",]
+#############
 plot3 <- ggplot(scaled_results[tuned.results$variable == "hidden_dim2",], 
                aes(x = as.numeric(value), y = scaled_score, color = group)) + 
                   geom_smooth(aes(linetype = optimizer, fill = group), 
@@ -145,7 +145,7 @@ ggsave("./outputs/Supplemental/SuppFigure1.pdf", height = 5.5, width = 10)
 Comparing results for Expanded Sequences (including amino acids from CDR1/2/3). These runs had set optimizer of Adam and activation ReLU.
 
 ```{r}
-expanded.results <- list.files("~/Documents/GitHub/Ibex.manuscript/data/tuningRuns/ExpandedSequence", 
+expanded.results <- list.files("./data/tuningRuns/ExpandedSequence",
                                full.names = TRUE)
 file.names <- str_split(expanded.results, "/", simplify = TRUE)[,ncol(str_split(expanded.results, "/", simplify = TRUE))]
 file.names <- str_remove_all(file.names, ".rds")
@@ -257,7 +257,7 @@ ggsave("./outputs/Figure1/Figure1E.pdf", height = 4.5, width = 6, dpi = 300)
 Looking at loss as a function of epoch, batch size and learning rate with fixed hidden and latent dimensions.
 
 ```{r}
-refined.results <- list.files("~/Documents/GitHub/Ibex.manuscript/data/tuningRuns/Refined", 
+refined.results <- list.files("./data/tuningRuns/Refined",
                                 full.names = TRUE)
 file.names <- str_split(refined.results, "/", simplify = TRUE)[,ncol(str_split(refined.results, "/", simplify = TRUE))]
 file.names <- str_remove_all(file.names, ".rds")
