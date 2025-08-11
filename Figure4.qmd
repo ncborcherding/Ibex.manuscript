@@ -6,13 +6,6 @@ editor: visual
 date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
 ---
 
-To DO List
-
-
--   Figure 4C Clustering ARI/Silhouette Comparison
-
--   Figure 4F: ROC Curve
-
 ## Loading Libraries
 
 ```{r}
@@ -26,38 +19,46 @@ library(leidenAlg)
 library(mclust)
 library(recipes)
 library(MLmetrics)
+library(parallel)
+library(doParallel)
+library(groupdata2)
 ```
 
 ## Defining Custom Functions
 
+This section defines two custom functions used later in the analysis: `myBinarySummary` for evaluating machine learning model performance and `jaccard_partition` for comparing clustering results.
+
 ```{r}
 myBinarySummary <- function(data, lev = NULL, model = NULL) {
-
-  # Positive class is assumed to be lev[2]
+  # Ensure the positive class is correctly identified (assuming it's the second level)
   if (length(lev) > 1) {
     positive_class <- lev[2]
   } else {
-    positive_class <- lev[1]  # fallback
+    # Fallback for single-class cases, though unlikely in binary classification
+    positive_class <- lev[1]
   }
   
-  # Confusion matrix
-  CM <- confusionMatrix(data$pred, data$obs, positive = positive_class)
+  # Generate the confusion matrix using caret's function
+  CM <- caret::confusionMatrix(data$pred, data$obs, positive = positive_class)
   
+  # Extract key metrics
   acc  <- CM$overall["Accuracy"]
   kap  <- CM$overall["Kappa"]
-  # By-class metrics
-  sens <- CM$byClass["Sensitivity"]       # TP / (TP + FN)
-  spec <- CM$byClass["Specificity"]       # TN / (TN + FP)
-  ppv  <- CM$byClass["Pos Pred Value"]    # TP / (TP + FP)
-  npv  <- CM$byClass["Neg Pred Value"]    # TN / (TN + FN)
-  f1   <- CM$byClass["F1"]                # 2 * (PPV * Sens) / (PPV + Sens)
+  sens <- CM$byClass["Sensitivity"]
+  spec <- CM$byClass["Specificity"]
+  ppv  <- CM$byClass["Pos Pred Value"]
+  npv  <- CM$byClass["Neg Pred Value"]
+  f1   <- CM$byClass["F1"]
   
+  # Combine into a named vector for output
   out <- c(
-    Accuracy = unname(acc),
-    Kappa    = unname(kap),
-    F1       = unname(f1),
-    PPV      = unname(ppv),
-    NPV      = unname(npv)
+    Accuracy    = unname(acc),
+    Kappa       = unname(kap),
+    F1          = unname(f1),
+    Sensitivity = unname(sens),
+    Specificity = unname(spec),
+    PPV         = unname(ppv),
+    NPV         = unname(npv)
   )
   
   return(out)
@@ -71,68 +72,90 @@ jaccard_partition <- function(c1, c2) {
   pairs_both <- 0
   pairs_either <- 0
   
-  # Compare co-clustering in each partition
+  # This O(n^2) implementation is slow but fine for this dataset size.
+  # It iterates through all unique pairs of items.
   for (i in 1:(n-1)){
     for (j in (i+1):n){
       same1 <- (c1[i] == c1[j])
       same2 <- (c2[i] == c2[j])
       
-      # If either partition puts i,j together, count it in "either"
-      if (same1 || same2) pairs_either <- pairs_either + 1
-      # If both partitions put i,j together, count it in "both"
+      # If the pair (i,j) is in the same cluster in partition 1 AND partition 2
       if (same1 && same2) pairs_both <- pairs_both + 1
+      # If the pair (i,j) is in the same cluster in partition 1 OR partition 2
+      if (same1 || same2) pairs_either <- pairs_either + 1
     }
   }
   
-  # Jaccard index = intersection / union (for co-clustered pairs)
+  # Jaccard index = |Intersection| / |Union|
   if (pairs_either == 0) {
-    return(NA)  # or 0, depending on preference
+    return(NA)
   } else {
     return(pairs_both / pairs_either)
   }
 }
 ```
 
-## Processing the Data 
+## Processing the Data
+
+This section handles the loading and preprocessing of the single-cell data. It involves three main steps:
+1.  Loading the primary Seurat object and the pre-computed embeddings from the BENISSE tool.
+2.  Aligning the BENISSE results with the cells in the Seurat object.
+3.  Generating a variety of new embeddings using the `Ibex` package.
+4.  Combining all embeddings into a final list for downstream comparison.
 
 ###  Unifying Benisse and Seurat Data
 
+Here, we load a processed Seurat object from the Kim et al., 2022 dataset. We filter it to retain only B cells that have been classified as either binding to the SARS-CoV-2 spike protein ("Yes") or not ("No"). We then load the BENISSE embeddings and carefully match them to the corresponding cells in our Seurat object using the clonotype information.
+
 ```{r}
-# Read the Seurat object
+# Read the Seurat object containing the Kim et al., 2022 dataset
+# This object should have cell metadata, including clonotype info and Spike specificity
 SeuratMerge <- readRDS("./data/processed/Kim2022_SeuratObject.rds")
 
-# Focus on Spike-Specific Yes/No B Cells
+# We are interested in predicting spike protein specificity, so we subset the object
+# to only include cells labeled as "Yes" or "No" for this attribute.
 SeuratMerge <- subset(SeuratMerge, subset = Spike.Specific %in% c("Yes", "No"))
 
-# Read the BENISSE results
+# Load the pre-computed embeddings from the BENISSE tool
 Benisse.results <- read.csv("data/Benisse/outputs/Encoded_Kim2022.csv")
 
-# Extract the metadata (with barcodes in rownames)
+# Extract the metadata from the Seurat object to facilitate matching
 SeuratMeta <- SeuratMerge[[]]  
 barcodes  <- rownames(SeuratMeta)
 
-# Extract the first token (before "_") from the CTaa column to match 'Benisse.results$index'
+# The clonotype format in the Seurat object (e.g., "clonotypeX_1") is slightly different
+# from the BENISSE results. We extract the base clonotype ID to ensure a correct match.
 IGH.clonotypes <- str_split(SeuratMeta$CTaa, "_", simplify = TRUE)[,1]
 
-# Match clonotypes to Benisse.results$index
+# Find the corresponding rows in the BENISSE results for each cell in the Seurat object
 match_idx <- match(IGH.clonotypes, Benisse.results$index)
 
-# Subset and reorder the BENISSE results to match the Seurat barcodes
+# Filter and reorder the BENISSE results to align perfectly with our Seurat object's cells
+# We also drop the first and last columns which are not part of the embedding.
 Benisse.results.filtered <- Benisse.results[match_idx, -c(1,22)]
 
-# Give 'Benisse.results.filtered' the same row names as the Seurat object
+# Assign the cell barcodes as rownames to the filtered BENISSE results for consistency
 rownames(Benisse.results.filtered) <- barcodes
-gc()
+gc() # Clean up memory
 ```
 
 ### Assembling the Dimensional Reductions
 
+In this chunk, we generate a panel of embeddings to compare. We use the `runIbex` function to create embeddings from the heavy chain CDR3 sequences using different deep learning architectures (CNN, VAE) and amino acid encoding schemes (OHE, Atchley Factors, etc.). We also include a non-neural network baseline, the "geometric" method.
+
+Furthermore, for each BCR-derived embedding, we create a "multimodal" version by concatenating it with the principal components from the gene expression data (RNA-seq). This allows us to test whether combining BCR and RNA information improves performance.
+
+Finally, all embeddings (Ibex, Ibex+RNA, and BENISSE) are collected into a single list, `IGH.reduction.list`, which will be the input for all subsequent comparisons.
+
 ```{r}
+# Define the autoencoder architectures and amino acid encoding methods to test
 arch <- c("CNN", "VAE")
 encoders <- c("atchleyFactors", "crucianiProperties", "OHE")
 
+# Loop through each combination of architecture and encoder to generate Ibex embeddings
 for(i in seq_along(arch)) {
   for(j in seq_along(encoders)) {
+    message("Running Ibex: ", arch[i], " with ", encoders[j])
     SeuratMerge <- runIbex(SeuratMerge, 
                            chain = "Heavy",
                            method = "encoder",
@@ -142,39 +165,44 @@ for(i in seq_along(arch)) {
   }
 }
 
-    SeuratMerge <- runIbex(SeuratMerge, 
-                           chain = "Heavy",
-                           method = "geometric",
-                           geometric.theta = pi/3, 
-                           reduction.name = "Ibex.H.Geometric")
+# Generate an embedding using the non-NN "geometric" method as a baseline
+SeuratMerge <- runIbex(SeuratMerge,
+                       chain = "Heavy",
+                       method = "geometric",
+                       geometric.theta = pi/3, # Parameter for geometric approach
+                       reduction.name = "Ibex.H.Geometric")
     
+# Get the names of all newly created DimReduc objects in the Seurat object
 seurat.reductions <- Reductions(SeuratMerge)[7:length(Reductions(SeuratMerge))]
 
+# Create a list containing the actual DimReduc objects
 IGH.reduction.list <- lapply(seurat.reductions, function(x) {
-                          tmp <- SeuratMerge[[x]]
-                          tmp
+                          SeuratMerge[[x]]
 })
+names(IGH.reduction.list) <- seurat.reductions
 
+# Add the pre-computed BENISSE embeddings to our list for comparison
 IGH.reduction.list[["Benisse"]] <- Benisse.results.filtered
-names(IGH.reduction.list) <- c(seurat.reductions, "Benisse")
 
-# Adding PCA to Latent Dimensions
+# --- Create Multimodal Embeddings (BCR + RNA) ---
+
+# Extract the PCA embeddings from the harmonized gene expression data
 PCA <- SeuratMerge@reductions$harmony.pca@cell.embeddings
 
-IGH.reduction.list.RNA <- lapply(IGH.reduction.list, function(x) {
-  if (class(x) == "DimReduc") {
-    tmp <- cbind(x@cell.embeddings, PCA)
-  } else {
-     tmp <- cbind(x, PCA)
-  }
-  tmp
+# For each existing embedding, create a new version by appending the RNA PCA components
+IGH.reduction.list.RNA <- lapply(names(IGH.reduction.list), function(name) {
+  x <- IGH.reduction.list[[name]]
+  # Extract the matrix from DimReduc objects or use the matrix directly
+  embedding_matrix <- if (inherits(x, "DimReduc")) x@cell.embeddings else x
+  cbind(embedding_matrix, PCA)
 })
-names(IGH.reduction.list.RNA) <- paste0(names(IGH.reduction.list.RNA), ".PCA")
+# Assign new names to these multimodal embeddings
+names(IGH.reduction.list.RNA) <- paste0(names(IGH.reduction.list), ".PCA")
 
-# Combining Final List to Evaluate
+# Combine the original BCR-only embeddings with the new BCR+RNA embeddings
 IGH.reduction.list <- c(IGH.reduction.list, IGH.reduction.list.RNA)
 
-IGH.clonotypes <- str_split(SeuratMeta$CTaa, "_", simplify = TRUE)[,1]
+# Store the ground truth labels (Spike Specificity) for later use in ML models
 Spike.Specific <- as.factor(as.character(SeuratMeta$Spike.Specific))
 ```
 
@@ -226,266 +254,291 @@ ggplot(pca_df, aes(x = PC1, y = PC2, color = Cluster)) +
 
 ```
 
-## Figure 4C
+## Figure 4C: Comparing Embedding Performance via Clustering
+
+To quantitatively assess how well each embedding preserves the biological structure of the data, we perform unsupervised clustering and compare the results. The rationale is that a better embedding will lead to more consistent clustering outcomes when compared to other high-performing embeddings.
+
+Our method is as follows:
+1.  For each embedding, we construct a k-Nearest Neighbor (kNN) graph, which captures the local neighborhood structure of the cells.
+2.  We apply the Leiden community detection algorithm to this graph to identify clusters.
+3.  We then calculate two metrics, the **Adjusted Rand Index (ARI)** and a **Jaccard Index**, to measure the similarity between the clustering results obtained from every pair of embeddings. An ARI of 1 indicates perfect agreement, while 0 indicates agreement expected by chance.
+
+The results are visualized as a heatmap, where higher values (brighter colors) indicate a stronger consensus between a pair of embeddings.
 
 ```{r}
-##################################################
-# Cluster each element in the list using Leiden
-##################################################
+# This chunk performs the clustering and comparison.
+library(bluster)
+library(scran)
+
+# --- Step 1 & 2: Build kNN graph and run Leiden for each embedding ---
 cluster.assignments <- list()
+k_neighbors <- 30 # A common choice for k in kNN graph construction
 
 for (reduction_name in names(IGH.reduction.list)) {
+  message("Clustering: ", reduction_name)
   
-  # Retrieve the adjacency matrix
-  adjacency_mat <- IGH.reduction.list[[reduction_name]]
+  # Extract the cell embedding matrix
+  embedding_matrix <- IGH.reduction.list[[reduction_name]]
+  if (inherits(embedding_matrix, "DimReduc")) {
+    embedding_matrix <- embedding_matrix@cell.embeddings
+  }
   
-  # Convert to igraph object
-  # mode="undirected", weighted=TRUE, diag=FALSE
-  g <- graph_from_adjacency_matrix(
-    adjmatrix = adjacency_mat,
-    mode      = "undirected",
-    weighted  = TRUE,
-    diag      = FALSE
-  )
+  # Build a shared nearest neighbor graph
+  snn_graph <- buildSNNGraph(t(embedding_matrix), k = k_neighbors, type = "jaccard")
   
-  # Run Leiden clustering
-  # Adjust resolution_parameter, n_iterations as needed
-  partition <- leiden(
-    g,
-    resolution_parameter = 1,
-    n_iterations = 10
-  )
+  # Run Leiden clustering on the graph
+  partition <- leidenAlg::leiden.community(snn_graph, resolution = 1) # Using a moderate resolution
   
-  # Store the cluster memberships
-  cluster.assignments[[reduction_name]] <- membership(partition)
+  # Store the resulting cluster memberships
+  cluster.assignments[[reduction_name]] <- partition$membership
 }
 
 
-##################################################
-# Compare all pairs of cluster solutions
-# using ARI and Jaccard
-##################################################
+# --- Step 3: Compare all pairs of cluster solutions ---
 all_combinations <- combn(names(cluster.assignments), 2, simplify = FALSE)
 
-comparison_results <- data.frame(
-  Method1  = character(), 
-  Method2  = character(), 
-  ARI      = numeric(), 
-  Jaccard  = numeric(),
-  stringsAsFactors = FALSE
-)
-
+comparison_results <- list()
 for (comb in all_combinations) {
-  c1 <- cluster.assignments[[comb[1]]]
-  c2 <- cluster.assignments[[comb[2]]]
+  method1 <- comb[1]
+  method2 <- comb[2]
   
-  # Adjusted Rand Index
+  c1 <- cluster.assignments[[method1]]
+  c2 <- cluster.assignments[[method2]]
+
+  # Calculate Adjusted Rand Index
   ari_val <- adjustedRandIndex(c1, c2)
   
-  # Jaccard index (as defined above for partitions)
+  # Calculate Jaccard Index
   jacc_val <- jaccard_partition(c1, c2)
   
-  # Add to results
-  comparison_results <- rbind(
-    comparison_results,
-    data.frame(
-      Method1 = comb[1], 
-      Method2 = comb[2],
-      ARI     = ari_val, 
-      Jaccard = jacc_val
-    )
+  comparison_results[[paste0(method1, "_", method2)]] <- data.frame(
+    Method1 = method1,
+    Method2 = method2,
+    ARI     = ari_val,
+    Jaccard = jacc_val
   )
 }
+comparison_df <- do.call(rbind, comparison_results)
 
-##################################################
-# Visualize the pairwise metrics with ggplot
-# (Two examples: ARI heatmap and Jaccard heatmap)
-##################################################
+# --- Step 4: Visualize the pairwise ARI as a heatmap ---
+# Create a clean label for plotting
+clean_label <- function(name) {
+  name <- gsub("Ibex\\.H\\.", "", name)
+  name <- gsub("\\.PCA", "+RNA", name)
+  name <- gsub("atchleyFactors", "Atchley", name)
+  name <- gsub("crucianiProperties", "Cruciani", name)
+  return(name)
+}
 
-# Heatmap-like for ARI
-ggplot(comparison_results, aes(x = Method1, y = Method2, fill = ARI)) +
-  geom_tile() +
-  geom_text(aes(label = round(ARI, 2)), color = "white", size = 4) +
-  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0.5) +
-  theme_minimal(base_size = 14) +
-  labs(title = "Adjusted Rand Index Between Cluster Partitions") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+comparison_df$Method1_clean <- clean_label(comparison_df$Method1)
+comparison_df$Method2_clean <- clean_label(comparison_df$Method2)
 
-# Heatmap-like for Jaccard
-ggplot(comparison_results, aes(x = Method1, y = Method2, fill = Jaccard)) +
-  geom_tile() +
-  geom_text(aes(label = round(Jaccard, 2)), color = "white", size = 4) +
-  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0.5) +
-  theme_minimal(base_size = 14) +
-  labs(title = "Jaccard Index Between Cluster Partitions") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# Get sorted levels for consistent ordering in the plot
+all_methods_clean <- sort(unique(c(comparison_df$Method1_clean, comparison_df$Method2_clean)))
+
+comparison_df$Method1_f <- factor(comparison_df$Method1_clean, levels = all_methods_clean)
+comparison_df$Method2_f <- factor(comparison_df$Method2_clean, levels = all_methods_clean)
+
+
+ggplot(comparison_df, aes(x = Method1_f, y = Method2_f, fill = ARI)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = round(ARI, 2)), color = "black", size = 2.5) +
+  scale_fill_viridis_c(name = "ARI", limits = c(0, 1), n.breaks = 5) +
+  labs(
+    title = "Clustering Agreement Between Embedding Methods",
+    subtitle = "Pairwise Adjusted Rand Index (ARI) of Leiden Clusters",
+    x = "Embedding Method",
+    y = "Embedding Method"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+    panel.grid = element_blank(),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(margin = margin(b = 15))
+  )
 ```
 
+
+## Figure 4D: Predicting Antigen Specificity with Machine Learning
+
+After evaluating the embeddings on their ability to group similar cells through clustering, we now assess them on a supervised machine learning task: predicting whether a B cell is specific to the SARS-CoV-2 spike protein.
+
+The process is as follows:
+1.  **Clonotype-Aware Cross-Validation:** To prevent data leakage and overly optimistic results, we create 5 cross-validation folds that are stratified by clonotype. This ensures that cells from the same clonotype are never in both the training and testing set at the same time.
+2.  **Model Training:** For each of the embeddings, we train four different types of machine learning models: Random Forest (`ranger`), regularized logistic regression (`xgbLinear`), Linear Discriminant Analysis (`lda`), and k-Nearest Neighbors (`knn`). This allows us to see if certain embeddings work better with specific model architectures. We use the `caret` package to standardize this process.
+3.  **Performance Evaluation:** We evaluate the models using the F1-score as our primary metric, as it provides a balanced measure of precision and recall, which is important for imbalanced datasets. We also report other standard metrics.
 
 ## Figure 4D
 
 ### Create group-based CV folds (no clonotype overlap in train/test)
 
+Here, we define the cross-validation strategy. We first identify all unique clonotypes, split them into 5 folds, and then create index lists for `caret` to use for training and testing, ensuring no clonotype overlap.
+
 ```{r}
-set.seed(123)
-unique_clonos <- unique(IGH.clonotypes)
+## =================================================================
+## Part 1: Stratified Group Train/Test Split & CV Fold Creation
+## =================================================================
+# Step 1.1: Create the main training/test split at the clonotype level
+unique_clonos <- unique(original_data$IGH.clonotypes)
+test_clonos <- sample(unique_clonos, size = floor(0.2 * length(unique_clonos)))
+test_idx <- which(original_data$IGH.clonotypes %in% test_clonos)
+train_idx <- setdiff(seq_len(nrow(original_data)), test_idx)
 
-# Create folds at clonotype level
-clono_folds <- createFolds(unique_clonos, k = 5, returnTrain = FALSE)
+# Step 1.2: Create stratified, grouped CV folds using the training data
+train_data_for_folding <- original_data[train_idx, ]
 
-# Initialize index lists
+folds <- groupdata2::fold(
+  data = train_data_for_folding,
+  k = 5,
+  group_col = "IGH.clonotypes", # Group by clonotype
+  cat_col = "Spike.Specific"    # Stratify by outcome
+)
+
+# Step 1.3: Generate the index lists for caret
 train_index_list <- list()
-test_index_list  <- list()
-
-for (fold_i in seq_along(clono_folds)) {
-  
-  test_clonotypes <- unique_clonos[clono_folds[[fold_i]]]
-  
-  test_idx <- which(IGH.clonotypes %in% test_clonotypes)
-  train_idx <- setdiff(seq_along(IGH.clonotypes), test_idx)
-  
-  train_index_list[[fold_i]] <- train_idx
-  test_index_list[[fold_i]]  <- test_idx
+test_index_list <- list()
+for (i in 1:5) {
+  local_train_indices <- which(folds$.folds != i)
+  local_test_indices <- which(folds$.folds == i)
+  # Map local indices back to the original data frame's indices
+  train_index_list[[i]] <- train_idx[local_train_indices]
+  test_index_list[[i]] <- train_idx[local_test_indices]
 }
 
-# Define caret control object correctly
-fitControl <- trainControl(
-  method           = "cv",
-  number           = 5,
-  index            = train_index_list,
-  indexOut         = test_index_list,
-  classProbs       = TRUE,
-  summaryFunction  = myBinarySummary,
-  savePredictions  = "final",
-  verboseIter      = FALSE
-)
-```
 
-### Loop over each dimension reduction and each ML method
+## =================================================================
+## Part 2: Model Training Loop (Corrected)
+## =================================================================
+# Register a parallel backend
+num_cores <- detectCores()
+cl <- makePSOCKcluster(max(1, num_cores - 1)) # Use n-1 cores
+registerDoParallel(cl)
 
-```{r}
-set.seed(123)
-
+# Define ML methods once
 ml_methods <- c("ranger", "xgbLinear", "lda", "knn")
 
 # Initialize results container
 all_results <- list()
 
-# Define sophisticated parameter tuning
+# Define caret control object correctly
+# Using 'prSummary' to get F1, Precision, Recall, and AUC
 fitControl <- trainControl(
-  method = "repeatedcv",
+  method = "cv",
   number = 5,
-  repeats = 3,
-  summaryFunction = twoClassSummary,
+  index = train_index_list, # Your custom training indices for each fold
+  indexOut = test_index_list,  # Your custom test indices for each fold
+  summaryFunction = prSummary, # Provides Precision, Recall, F-measure
   classProbs = TRUE,
-  savePredictions = TRUE,
-  verboseIter = FALSE
+  savePredictions = "final",
+  verboseIter = FALSE,
+  allowParallel = TRUE
 )
 
+# Step 2.1: Loop over each dimensionality reduction
 for (reduction_name in names(IGH.reduction.list)) {
+  message("Processing reduction: ", reduction_name)
 
-  embedding <- IGH.reduction.list[[reduction_name]]
+  # Prepare the full data frame for this reduction
+  embedding <- as.data.frame(IGH.reduction.list[[reduction_name]])
+  df <- data.frame(embedding, Spike.Specific = original_data$Spike.Specific)
 
-  if (inherits(embedding, "DimReduc")) {
-    embedding <- embedding@cell.embeddings
-  }
-
-  embedding <- as.data.frame(embedding)
-
-  # Remove zero-variance features
-  embedding <- embedding[, apply(embedding, 2, sd) != 0]
-
-  df <- data.frame(embedding, Spike.Specific = Spike.Specific)
-
-  # Apply recipe for standardized feature selection
+  # Define the recipe
   rec <- recipe(Spike.Specific ~ ., data = df) %>%
     step_zv(all_predictors()) %>%
-    step_corr(all_predictors(), threshold = 0.9) %>%
     step_center(all_predictors()) %>%
     step_scale(all_predictors())
 
   model_results <- list()
-  message("Processing reduction: ", reduction_name)
-
   for (m in ml_methods) {
-    message("Fitting model: ", m)
-
+    message("--> Fitting model: ", m)
     set.seed(123)
     fit <- tryCatch({
+      # ** CRITICAL FIX **
+      # Pass the FULL data frame 'df' to `data`.
+      # Use the 'subset' argument to tell caret which rows are for training.
+      # caret then uses 'index' and 'indexOut' from fitControl to split this subset.
       caret::train(
         rec,
         data = df,
+        subset = train_idx, # <== THIS IS THE CORRECT WAY
         method = m,
-        metric = "ROC",
+        metric = "F", # Using F-measure from prSummary
         trControl = fitControl,
-        tuneLength = 10
+        tuneLength = 5 # Reduced for speed in example
       )
-    }, warning = function(w) {
-      message("Warning: ", conditionMessage(w))
-      NULL
     }, error = function(e) {
-      message("Error: ", e$message)
+      message("  -> Error fitting ", m, ": ", e$message)
       NULL
     })
-
     model_results[[m]] <- fit
   }
-
   all_results[[reduction_name]] <- model_results
 }
 
-# Compile final performance metrics with detailed feature selection quantification
-perf_list <- list()
+# Stop the parallel cluster
+stopCluster(cl)
+registerDoSEQ() # Register sequential backend
 
+# Optional: Save results
+# saveRDS(all_results, "outputs/intermediates/model_results.rds")
+
+
+## =================================================================
+## Part 3: Compile Performance Metrics (Corrected)
+## =================================================================
+perf_list <- list()
 for (reduction_name in names(all_results)) {
   for (m in names(all_results[[reduction_name]])) {
     fit_obj <- all_results[[reduction_name]][[m]]
 
     if (!is.null(fit_obj)) {
-      best <- fit_obj$bestTune
-      res_sub <- inner_join(fit_obj$results, best)
-      res_sub <- res_sub[1, ]
+      # This correctly extracts the performance row for the best hyperparameters
+      best_perf <- inner_join(fit_obj$results, fit_obj$bestTune, by = names(fit_obj$bestTune))
 
-      # Quantify feature selection (number of features used after preprocessing)
-      rec_final <- prep(fit_obj$recipe, training = df)
-      num_features <- length(bake(rec_final, new_data = NULL) %>% select(-Spike.Specific))
-
+      # Create a clean data frame with the desired metrics
       perf_list[[paste0(reduction_name, "_", m)]] <- data.frame(
         Reduction = reduction_name,
         Model = m,
-        Accuracy = res_sub$Accuracy,
-        Kappa = res_sub$Kappa,
-        F1 = res_sub$F1,
-        PPV = res_sub$Precision,
-        NPV = res_sub$Recall,
-        Features_Selected = num_features,
-        Parameters_Tuned = paste(names(best), best, sep = "=", collapse = ";")
+        AUC = best_perf$AUC,
+        Precision = best_perf$Precision,
+        Recall = best_perf$Recall,
+        F1 = best_perf$F
       )
     }
   }
 }
 
 final_perf <- bind_rows(perf_list)
+```
 
-# Return final performance results
-final_perf
+```{r}
+
+# Display the top-performing models in a clean table
+library(knitr)
+library(dplyr)
+
+final_perf %>%
+  arrange(desc(F1)) %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  head(10) %>%
+  kable(caption = "Top 10 Performing Models by F1-Score")
 ```
 
 ### Plotting Results
 
+A heatmap is useful, but a dot plot can be more effective for comparing performance across different models and embeddings simultaneously. Here, we plot the F1-score for each combination. The x-axis represents the F1-score, and the methods are sorted by their median performance to make comparison easier.
+
 ```{r}
+# Use the same clean labels as before
+final_perf$Reduction_clean <- clean_label(final_perf$Reduction)
 # Select relevant columns and reshape for heatmap
 heatmap_data <- final_perf %>%
-  select(Model, Reduction, Kappa)
+  select(Model, Reduction, F1)
 
-heatmap_data$Reduction <- ifelse(
-  heatmap_data$Reduction == "Benisse",
-  "Benisse",
-  gsub(".*\\.(.*)$", "\\1", heatmap_data$Reduction)
-)
 
 # Plot heatmap
-plot1 <- ggplot(heatmap_data, aes(x = Model, y = Reduction, fill = Kappa)) +
+plot1 <- ggplot(heatmap_data, aes(x = Model, y = Reduction, fill = F1)) +
   geom_tile(color = "white") +
   scale_fill_viridis() +
   theme_minimal() +
@@ -515,87 +568,105 @@ plot2 <- ggplot(heatmap_data, aes(x = Model, y = Reduction, fill = PPV)) +
   scale_fill_viridis() +
   theme_minimal() +
   labs(
-       x = "Model",
-       y = "Reduction",
-       fill = "PPV") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-#############
-#NPV Viz
-#############
-
-# Select relevant columns and reshape for heatmap
-heatmap_data <- final_perf %>%
-  select(Model, Reduction, NPV)
-
-heatmap_data$Reduction <- ifelse(
-  heatmap_data$Reduction == "Benisse",
-  "Benisse",
-  gsub(".*\\.(.*)$", "\\1", heatmap_data$Reduction)
-)
-
-# Plot heatmap
-plot3 <- ggplot(heatmap_data, aes(x = Model, y = Reduction, fill = NPV)) +
-  geom_tile(color = "white") +
-  scale_fill_viridis() +
-  theme_minimal() +
-  labs(
-       x = "Model",
-       y = "Reduction",
-       fill = "NPV") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    title = "Machine Learning Performance for Antigen Prediction",
+    subtitle = "F1-Score Across Different Embedding and Model Types",
+    x = "F1-Score (Higher is Better)",
+    y = "Embedding Method"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.major.x = element_line(color = "gray90"),
+    panel.grid.minor.x = element_blank(),
+    legend.position = "top",
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(margin = margin(b = 15))
+  ) +
+  scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2))
 ```
-## Figure 4E 
+
+## Figure 4E: ROC Curve Comparison for the Best Model
+
+To further explore the performance of the top models, we can visualize their Receiver Operating Characteristic (ROC) curves. An ROC curve plots the true positive rate against the false positive rate at various threshold settings. The Area Under the Curve (AUC) is a key metric; a value of 1.0 represents a perfect classifier, while 0.5 represents a classifier with no discriminative ability.
+
+Here, we first identify the best-performing model type (e.g., `ranger`) based on the median F1-score from the previous section. We then plot the ROC curves for that model across all the different embedding types. This allows us to see which embeddings provide the best classification power for the winning model architecture.
+
+## Figure 4E
 
 ```{r}
-plot_obj <- NULL
-plot_colors <- rainbow(length(names(all_results)))  
-i <- 1
+# --- Programmatically select the best model ---
+best_model_summary <- final_perf %>%
+  group_by(Model) %>%
+  summarise(MedianF1 = median(F1, na.rm = TRUE)) %>%
+  arrange(desc(MedianF1))
 
+chosen_model <- best_model_summary$Model[1]
+
+message(paste("Best performing model type by median F1-score:", chosen_model))
+
+
+# --- Generate and plot ROC curves ---
+# Get a good color palette for many lines
+plot_colors <- RColorBrewer::brewer.pal(n = 8, name = "Set2")
+
+# Initialize the plot
+plot.new()
+legend_labels <- c()
+auc_values <- c()
+
+# Loop through each embedding and plot the ROC curve for the chosen model
 for (reduction_name in names(all_results)) {
   fit_obj <- all_results[[reduction_name]][[chosen_model]]
   
-  best <- fit_obj$bestTune
-  pred_df <- fit_obj$pred
-  for (tn in names(best)) {
-    pred_df <- pred_df[ which(pred_df[[tn]] == best[[tn]]), ]
+  if (!is.null(fit_obj)) {
+    pred_df <- fit_obj$pred
+
+    # The positive class is the second factor level
+    positive_class <- fit_obj$levels[2]
+
+    # Create the ROC object
+    roc_obj <- roc(
+      response = pred_df$obs,
+      predictor = pred_df[[positive_class]],
+      levels = fit_obj$levels
+    )
+
+    # Add the curve to the plot
+    plot.roc(
+      roc_obj,
+      add = (length(legend_labels) > 0), # `add = TRUE` for subsequent curves
+      col = plot_colors[length(legend_labels) %% length(plot_colors) + 1],
+      lwd = 2
+    )
+
+    legend_labels <- c(legend_labels, clean_label(reduction_name))
+    auc_values <- c(auc_values, auc(roc_obj))
   }
-  
-  positive_class <- fit_obj$levels[2]
-  roc_obj <- roc(response = pred_df$obs, 
-                 predictor = pred_df[[positive_class]], 
-                 levels = fit_obj$levels)
-  
-  if (is.null(plot_obj)) {
-    plot_obj <- plot.roc(roc_obj,
-                         main = paste("ROC for", chosen_model, "across reductions"),
-                         col = plot_colors[i],
-                         lwd = 2)
-  } else {
-    lines.roc(roc_obj, col = plot_colors[i], lwd = 2)
-  }
-  
-  auc_val <- round(auc(roc_obj), 3)
-  legend_label <- paste0(reduction_name, " (AUC=", auc_val, ")")
-  
-  if (i == 1) {
-    legend_text <- legend_label
-  } else {
-    legend_text <- c(legend_text, legend_label)
-  }
-  
-  i <- i + 1
 }
 
-# Add a legend
-legend("bottomright", legend = legend_text,
-       col = plot_colors, lwd = 2, cex = 0.8)
+# Add a title
+title(main = paste("ROC Curves for the", chosen_model, "Model"),
+      sub = "Performance Across All Embedding Types")
 
+# Create a legend with AUC values
+legend_text <- paste0(legend_labels, " (AUC = ", round(auc_values, 3), ")")
+legend(
+  "bottomright",
+  legend = legend_text,
+  col = plot_colors[1:length(legend_labels)],
+  lwd = 2,
+  cex = 0.75,
+  title = "Embedding Method"
+)
 ```
 
 
 ## Conclusions
 
+
 ```{r}
+# Stop the parallel cluster
+stopCluster(cl)
+
+# Print session info for reproducibility
 sessionInfo()
 ```
