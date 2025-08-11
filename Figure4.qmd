@@ -376,6 +376,8 @@ The process is as follows:
 Here, we define the cross-validation strategy. We first identify all unique clonotypes, split them into 5 folds, and then create index lists for `caret` to use for training and testing, ensuring no clonotype overlap.
 
 ```{r}
+original_data <- SeuratMerge[[]]
+original_data$IGH.clonotypes <- str_split(original_data$CTaa, "_", simplify = TRUE)[,1]
 ## =================================================================
 ## Part 1: Stratified Group Train/Test Split & CV Fold Creation
 ## =================================================================
@@ -664,9 +666,6 @@ legend(
 
 
 ```{r}
-# Stop the parallel cluster
-stopCluster(cl)
-
 # Print session info for reproducibility
 sessionInfo()
 ```
