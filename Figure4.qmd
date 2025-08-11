@@ -6,12 +6,6 @@ editor: visual
 date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
 ---
 
-To DO List
-
--   Figure 4C Clustering ARI/Silhouette Comparison
-
--   Figure 4F: ROC Curve
-
 ## Loading Libraries
 
 ```{r}
@@ -25,6 +19,9 @@ library(leidenAlg)
 library(mclust)
 library(recipes)
 library(MLmetrics)
+library(parallel)
+library(doParallel)
+library(groupdata2)
 ```
 
 ## Defining Custom Functions
@@ -271,6 +268,7 @@ The results are visualized as a heatmap, where higher values (brighter colors) i
 ```{r}
 # This chunk performs the clustering and comparison.
 library(bluster)
+library(scran)
 
 # --- Step 1 & 2: Build kNN graph and run Leiden for each embedding ---
 cluster.assignments <- list()
@@ -286,13 +284,13 @@ for (reduction_name in names(IGH.reduction.list)) {
   }
   
   # Build a shared nearest neighbor graph
-  snn_graph <- buildSNNGraph(embedding_matrix, k = k_neighbors, type = "jaccard")
+  snn_graph <- buildSNNGraph(t(embedding_matrix), k = k_neighbors, type = "jaccard")
   
   # Run Leiden clustering on the graph
-  partition <- leiden(snn_graph, resolution_parameter = 0.5) # Using a moderate resolution
+  partition <- leidenAlg::leiden.community(snn_graph, resolution = 1) # Using a moderate resolution
   
   # Store the resulting cluster memberships
-  cluster.assignments[[reduction_name]] <- partition
+  cluster.assignments[[reduction_name]] <- partition$membership
 }
 
 
@@ -378,159 +376,143 @@ The process is as follows:
 Here, we define the cross-validation strategy. We first identify all unique clonotypes, split them into 5 folds, and then create index lists for `caret` to use for training and testing, ensuring no clonotype overlap.
 
 ```{r}
-set.seed(123)
-# Step 1: Create training/test split at the clonotype level
-unique_clonos <- unique(IGH.clonotypes)
+## =================================================================
+## Part 1: Stratified Group Train/Test Split & CV Fold Creation
+## =================================================================
+# Step 1.1: Create the main training/test split at the clonotype level
+unique_clonos <- unique(original_data$IGH.clonotypes)
 test_clonos <- sample(unique_clonos, size = floor(0.2 * length(unique_clonos)))
-test_idx <- which(IGH.clonotypes %in% test_clonos)
-train_idx <- setdiff(seq_along(IGH.clonotypes), test_idx)
+test_idx <- which(original_data$IGH.clonotypes %in% test_clonos)
+train_idx <- setdiff(seq_len(nrow(original_data)), test_idx)
 
-# Step 2: Prepare training folds (CV) at clonotype level
-train_clonos <- IGH.clonotypes[train_idx]
-train_clono_ids <- unique(train_clonos)
-clono_folds <- createFolds(train_clono_ids, k = 5, returnTrain = FALSE)
+# Step 1.2: Create stratified, grouped CV folds using the training data
+train_data_for_folding <- original_data[train_idx, ]
 
+folds <- groupdata2::fold(
+  data = train_data_for_folding,
+  k = 5,
+  group_col = "IGH.clonotypes", # Group by clonotype
+  cat_col = "Spike.Specific"    # Stratify by outcome
+)
+
+# Step 1.3: Generate the index lists for caret
 train_index_list <- list()
-test_index_list  <- list()
-
-for (fold_i in seq_along(clono_folds)) {
-  fold_clonos <- train_clono_ids[clono_folds[[fold_i]]]
-  test_fold_idx <- train_idx[which(train_clonos %in% fold_clonos)]
-  train_fold_idx <- setdiff(train_idx, test_fold_idx)
-  
-  train_index_list[[fold_i]] <- train_fold_idx
-  test_index_list[[fold_i]]  <- test_fold_idx
+test_index_list <- list()
+for (i in 1:5) {
+  local_train_indices <- which(folds$.folds != i)
+  local_test_indices <- which(folds$.folds == i)
+  # Map local indices back to the original data frame's indices
+  train_index_list[[i]] <- train_idx[local_train_indices]
+  test_index_list[[i]] <- train_idx[local_test_indices]
 }
 
-# Define caret control object correctly
-fitControl <- trainControl(
-  method           = "cv",
-  number           = 5,
-  index            = train_index_list,
-  indexOut         = test_index_list,
-  classProbs       = TRUE,
-  summaryFunction  = myBinarySummary,
-  savePredictions  = "final",
-  verboseIter      = FALSE,
-  allowParallel    = TRUE 
-)
-```
 
-### Loop over each dimension reduction and each ML method
-
-```{r}
-# Register a parallel backend to speed up model training
-# Using half of the available cores
-num_cores <- parallel::detectCores()
-cl <- makePSOCKcluster(num_cores / 2)
+## =================================================================
+## Part 2: Model Training Loop (Corrected)
+## =================================================================
+# Register a parallel backend
+num_cores <- detectCores()
+cl <- makePSOCKcluster(max(1, num_cores - 1)) # Use n-1 cores
 registerDoParallel(cl)
 
-set.seed(123)
-
+# Define ML methods once
 ml_methods <- c("ranger", "xgbLinear", "lda", "knn")
 
 # Initialize results container
 all_results <- list()
 
-# Step 3: Define trainControl using CV folds
+# Define caret control object correctly
+# Using 'prSummary' to get F1, Precision, Recall, and AUC
 fitControl <- trainControl(
   method = "cv",
   number = 5,
-  index = train_index_list,
-  indexOut = test_index_list,
+  index = train_index_list, # Your custom training indices for each fold
+  indexOut = test_index_list,  # Your custom test indices for each fold
+  summaryFunction = prSummary, # Provides Precision, Recall, F-measure
   classProbs = TRUE,
-  summaryFunction = twoClassSummary,
   savePredictions = "final",
-  verboseIter = FALSE
+  verboseIter = FALSE,
+  allowParallel = TRUE
 )
 
-ml_methods <- c("rf", "xgbLinear", "lda", "knn")
-all_results <- list()
-
-# Step 4: Loop over each dimensionality reduction
+# Step 2.1: Loop over each dimensionality reduction
 for (reduction_name in names(IGH.reduction.list)) {
-  embedding <- IGH.reduction.list[[reduction_name]]
-  if (inherits(embedding, "DimReduc")) {
-    embedding <- embedding@cell.embeddings
-  }
-  embedding <- as.data.frame(embedding)
-  embedding <- embedding[, apply(embedding, 2, sd, na.rm = TRUE) != 0]
-
-  df <- data.frame(embedding, Spike.Specific = Spike.Specific)
-  
-  model_results <- list()
   message("Processing reduction: ", reduction_name)
 
-  # Step 5: Define recipe (scaling and filtering)
+  # Prepare the full data frame for this reduction
+  embedding <- as.data.frame(IGH.reduction.list[[reduction_name]])
+  df <- data.frame(embedding, Spike.Specific = original_data$Spike.Specific)
+
+  # Define the recipe
   rec <- recipe(Spike.Specific ~ ., data = df) %>%
     step_zv(all_predictors()) %>%
     step_center(all_predictors()) %>%
     step_scale(all_predictors())
 
+  model_results <- list()
   for (m in ml_methods) {
-    message("Fitting model: ", m)
+    message("--> Fitting model: ", m)
     set.seed(123)
     fit <- tryCatch({
+      # ** CRITICAL FIX **
+      # Pass the FULL data frame 'df' to `data`.
+      # Use the 'subset' argument to tell caret which rows are for training.
+      # caret then uses 'index' and 'indexOut' from fitControl to split this subset.
       caret::train(
         rec,
-        data = df[train_idx, ],
+        data = df,
+        subset = train_idx, # <== THIS IS THE CORRECT WAY
         method = m,
-        metric = "ROC",
+        metric = "F", # Using F-measure from prSummary
         trControl = fitControl,
-        tuneLength = 10
+        tuneLength = 5 # Reduced for speed in example
       )
-    }, warning = function(w) {
-      message("Warning: ", conditionMessage(w))
-      NULL
     }, error = function(e) {
-      message("Error: ", e$message)
+      message("  -> Error fitting ", m, ": ", e$message)
       NULL
     })
     model_results[[m]] <- fit
   }
   all_results[[reduction_name]] <- model_results
 }
-saveRDS(all_results, "outputs/intermediates/model_results.rds")
 
-# Compile final performance metrics
+# Stop the parallel cluster
+stopCluster(cl)
+registerDoSEQ() # Register sequential backend
+
+# Optional: Save results
+# saveRDS(all_results, "outputs/intermediates/model_results.rds")
+
+
+## =================================================================
+## Part 3: Compile Performance Metrics (Corrected)
+## =================================================================
 perf_list <- list()
 for (reduction_name in names(all_results)) {
   for (m in names(all_results[[reduction_name]])) {
     fit_obj <- all_results[[reduction_name]][[m]]
 
     if (!is.null(fit_obj)) {
-      # The results from the cross-validation are in fit_obj$results
-      # We want the metrics for the final, best model.
-      # Since we used a custom CV strategy, we look at the single row of metrics.
-      res_sub <- fit_obj$results[1, ]
-      best <- fit_obj$bestTune
-      res_sub <- inner_join(fit_obj$results, best)
-      res_sub <- res_sub[1, ]
-      Sens <- res_sub$Sens
-      Spec <- res_sub$Spec
-      TP <- Sens * 979
-      TN <- res_sub$Spec * 373
-      FP <- 373-TN
-      FN <- 979-TP
-      PPV = TP/(TP + FP)
-      NPV = TN/(TN + FN)
-      
+      # This correctly extracts the performance row for the best hyperparameters
+      best_perf <- inner_join(fit_obj$results, fit_obj$bestTune, by = names(fit_obj$bestTune))
 
+      # Create a clean data frame with the desired metrics
       perf_list[[paste0(reduction_name, "_", m)]] <- data.frame(
         Reduction = reduction_name,
         Model = m,
-        Accuracy = res_sub$Accuracy,
-        Kappa = res_sub$Kappa,
-        F1 = res_sub$F1,
-        Sensitivity = res_sub$Sensitivity,
-        Specificity = res_sub$Specificity,
-        PPV = res_sub$PPV,
-        NPV = res_sub$NPV
+        AUC = best_perf$AUC,
+        Precision = best_perf$Precision,
+        Recall = best_perf$Recall,
+        F1 = best_perf$F
       )
     }
   }
 }
+
 final_perf <- bind_rows(perf_list)
+```
+
+```{r}
 
 # Display the top-performing models in a clean table
 library(knitr)
